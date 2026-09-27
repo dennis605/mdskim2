@@ -1,5 +1,5 @@
-// Package editor implementiert einen einfachen Text-Buffer mit
-// Cursor-Position. Markdown-Syntax-Highlighting kommt in R5.
+// Package editor implementiert einen Text-Buffer mit Cursor,
+// Undo/Redo-History und Save.
 package editor
 
 import (
@@ -9,18 +9,22 @@ import (
 	"github.com/dennis605/mdskim2/internal/workspace"
 )
 
-// Buffer hält den Text-Inhalt + Cursor.
+// Buffer hält den Text-Inhalt + Cursor + History.
 type Buffer struct {
 	Lines     []string
 	CursorRow int
 	CursorCol int
 	Modified  bool
-	Path      string // leer = unbenannt
+	Path      string
+
+	// Undo/Redo: History ist eine Liste aller Zustände (inkl. aktueller).
+	History    [][]string
+	HistoryIdx int
+	HistoryMax int
 }
 
 // LoadFromFile liest eine Datei in den Buffer.
 func LoadFromFile(path string) (*Buffer, error) {
-	// Verzeichnis ist kein File
 	if info, err := workspace.StatFile(path); err == nil && info.IsDir() {
 		return nil, &NotAFileError{Path: path}
 	}
@@ -31,13 +35,24 @@ func LoadFromFile(path string) (*Buffer, error) {
 	}
 
 	lines := strings.Split(content, "\n")
+	b := &Buffer{
+		Lines:      lines,
+		History:    [][]string{copyLines(lines)},
+		HistoryIdx: 0,
+		HistoryMax: 50,
+		Path:       path,
+	}
+	return b, nil
+}
+
+// NewEmpty erzeugt einen leeren Buffer.
+func NewEmpty() *Buffer {
 	return &Buffer{
-		Lines:     lines,
-		CursorRow: 0,
-		CursorCol: 0,
-		Modified:  false,
-		Path:      path,
-	}, nil
+		Lines:      []string{""},
+		History:    [][]string{{""}},
+		HistoryIdx: 0,
+		HistoryMax: 50,
+	}
 }
 
 // NotAFileError signalisiert, dass versucht wurde, ein Verzeichnis zu öffnen.
@@ -62,6 +77,61 @@ func (b *Buffer) TotalWords() int {
 		n += len(fields)
 	}
 	return n
+}
+
+// snapshotHistory speichert aktuelle Lines in History (nach der Änderung).
+func (b *Buffer) snapshotHistory() {
+	// Wenn wir nach Undo schreiben, verwerfen spätere History
+	if b.HistoryIdx >= 0 && b.HistoryIdx < len(b.History)-1 {
+		b.History = b.History[:b.HistoryIdx+1]
+	}
+	cp := copyLines(b.Lines)
+	b.History = append(b.History, cp)
+	if len(b.History) > b.HistoryMax {
+		b.History = b.History[len(b.History)-b.HistoryMax:]
+	}
+	b.HistoryIdx = len(b.History) - 1
+}
+
+func copyLines(src []string) []string {
+	cp := make([]string, len(src))
+	copy(cp, src)
+	return cp
+}
+
+// Undo macht einen Schritt rückgängig.
+func (b *Buffer) Undo() {
+	if b.HistoryIdx <= 0 || len(b.History) == 0 {
+		return
+	}
+	b.HistoryIdx--
+	b.Lines = copyLines(b.History[b.HistoryIdx])
+	b.Modified = true
+	b.clampCursor()
+}
+
+// Redo stellt einen rückgängig gemachten Schritt wieder her.
+func (b *Buffer) Redo() {
+	if b.HistoryIdx >= len(b.History)-1 || len(b.History) == 0 {
+		return
+	}
+	b.HistoryIdx++
+	b.Lines = copyLines(b.History[b.HistoryIdx])
+	b.Modified = true
+	b.clampCursor()
+}
+
+func (b *Buffer) clampCursor() {
+	if b.CursorRow >= len(b.Lines) {
+		b.CursorRow = len(b.Lines) - 1
+	}
+	if b.CursorRow < 0 {
+		b.CursorRow = 0
+	}
+	maxCol := utf8.RuneCountInString(b.Lines[b.CursorRow])
+	if b.CursorCol > maxCol {
+		b.CursorCol = maxCol
+	}
 }
 
 // MoveCursor bewegt den Cursor (clamped).
@@ -109,6 +179,7 @@ func (b *Buffer) InsertChar(ch rune) {
 	b.Lines[b.CursorRow] = string(runes)
 	b.CursorCol++
 	b.Modified = true
+	b.snapshotHistory()
 }
 
 // DeleteChar löscht das Zeichen vor dem Cursor (Backspace).
@@ -117,13 +188,13 @@ func (b *Buffer) DeleteChar() {
 		return
 	}
 	if b.CursorCol == 0 {
-		// Merge mit vorheriger Zeile
 		prev := b.Lines[b.CursorRow-1]
 		cur := b.Lines[b.CursorRow]
 		b.Lines = append(b.Lines[:b.CursorRow-1], append([]string{prev + cur}, b.Lines[b.CursorRow+1:]...)...)
 		b.CursorRow--
 		b.CursorCol = utf8.RuneCountInString(prev)
 		b.Modified = true
+		b.snapshotHistory()
 		return
 	}
 	line := b.Lines[b.CursorRow]
@@ -135,6 +206,7 @@ func (b *Buffer) DeleteChar() {
 	b.Lines[b.CursorRow] = string(runes)
 	b.CursorCol--
 	b.Modified = true
+	b.snapshotHistory()
 }
 
 // DeleteCharForward löscht das Zeichen an Cursor (Delete-Key).
@@ -142,17 +214,18 @@ func (b *Buffer) DeleteCharForward() {
 	line := b.Lines[b.CursorRow]
 	runes := []rune(line)
 	if b.CursorCol >= len(runes) {
-		// Merge mit nächster Zeile
 		if b.CursorRow < len(b.Lines)-1 {
 			b.Lines[b.CursorRow] = line + b.Lines[b.CursorRow+1]
 			b.Lines = append(b.Lines[:b.CursorRow+1], b.Lines[b.CursorRow+2:]...)
 			b.Modified = true
+			b.snapshotHistory()
 		}
 		return
 	}
 	runes = append(runes[:b.CursorCol], runes[b.CursorCol+1:]...)
 	b.Lines[b.CursorRow] = string(runes)
 	b.Modified = true
+	b.snapshotHistory()
 }
 
 // InsertNewLine fügt einen Newline an Cursor-Position ein.
@@ -169,9 +242,66 @@ func (b *Buffer) InsertNewLine() {
 	b.CursorRow++
 	b.CursorCol = 0
 	b.Modified = true
+	b.snapshotHistory()
+}
+
+// InsertString fügt einen String an Cursor-Position ein.
+func (b *Buffer) InsertString(s string) {
+	if s == "" {
+		return
+	}
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if i > 0 {
+			b.InsertNewLine()
+		}
+		for _, ch := range line {
+			b.InsertChar(ch)
+		}
+	}
+}
+
+// DeleteLine löscht die aktuelle Zeile komplett.
+func (b *Buffer) DeleteLine() {
+	if len(b.Lines) <= 1 {
+		b.Lines[0] = ""
+		b.CursorRow = 0
+		b.CursorCol = 0
+		b.Modified = true
+		b.snapshotHistory()
+		return
+	}
+	b.Lines = append(b.Lines[:b.CursorRow], b.Lines[b.CursorRow+1:]...)
+	if b.CursorRow >= len(b.Lines) {
+		b.CursorRow = len(b.Lines) - 1
+	}
+	b.CursorCol = 0
+	b.Modified = true
+	b.snapshotHistory()
 }
 
 // ToString serialisiert den Buffer zurück zu einem String.
 func (b *Buffer) ToString() string {
 	return strings.Join(b.Lines, "\n")
+}
+
+// Save schreibt den Buffer auf Disk.
+func (b *Buffer) Save() error {
+	if b.Path == "" {
+		return &NoPathError{}
+	}
+	content := b.ToString()
+	if err := workspace.WriteFile(b.Path, content); err != nil {
+		return err
+	}
+	b.Modified = false
+	b.snapshotHistory()
+	return nil
+}
+
+// NoPathError signalisiert, dass der Buffer keinen Pfad hat.
+type NoPathError struct{}
+
+func (e *NoPathError) Error() string {
+	return "Buffer hat keinen Pfad"
 }

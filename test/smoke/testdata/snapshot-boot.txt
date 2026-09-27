@@ -80,6 +80,6 @@ FILES                   #INHALT
                         a                            
                         c                            
                         e                            
-─                           
-… EDIT · R3: Editor + Buffer
-Ctrl+S Save │ Ctrl+O Open │ Ctrl+P Open │ Ctrl+F Find │ Ctrl+Shift+P Commands │ Ctrl+Q Quit
+─                            
+… EDIT · R4: Save + Clipboard
+Ctrl+S Save │ Ctrl+Z Undo │ Ctrl+Y Redo │ Ctrl+B Bold │ Ctrl+F Find │ Ctrl+Q Quit

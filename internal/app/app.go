@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/atotto/clipboard"
 
 	"github.com/dennis605/mdskim2/internal/editor"
 	"github.com/dennis605/mdskim2/internal/ui"
@@ -24,18 +25,20 @@ type Model struct {
 	cursorIdx  int
 	flatList   []*workspace.FileNode
 
-	// Editor (R3)
-	buffer *editor.Buffer
-
-	// Display
-	currentFile string
+	buffer      *editor.Buffer
+	clipboard   string
+	selection   string // für R5: aktuelle Selection
 	mode        string
-	theme       ui.Theme
-	layout      ui.Layout
-	version     string
+	currentFile string
+
+	theme   ui.Theme
+	layout  ui.Layout
+	version string
+
+	// Save-Status
+	saveError string
 }
 
-// New erzeugt einen frischen Anwendungs-Model.
 func New(workspacePath string) Model {
 	ws, _ := workspace.Load(workspacePath)
 	r := workspace.NewTreeRenderer()
@@ -46,13 +49,12 @@ func New(workspacePath string) Model {
 		width:         120,
 		height:        40,
 		mode:          "EDIT",
-		version:       "R3: Editor + Buffer",
+		version:       "R4: Save + Clipboard",
 		theme:         ui.Light(),
 		layout:        ui.DefaultLayout(),
 		workspace:     ws,
 		treeRender:    r,
 		flatList:      flat,
-		cursorIdx:     0,
 	}
 }
 
@@ -78,8 +80,69 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyCtrlQ:
 		m.quitting = true
 		return m, tea.Quit
+
+	case tea.KeyCtrlS:
+		return m.saveBuffer()
+
+	case tea.KeyCtrlZ:
+		if m.buffer != nil {
+			m.buffer.Undo()
+		}
+		return m, nil
+
+	case tea.KeyCtrlY:
+		if m.buffer != nil {
+			m.buffer.Redo()
+		}
+		return m, nil
+
+	case tea.KeyCtrlC:
+		// Wenn Buffer aktiv: Copy line (Selection kommt in R5)
+		if m.buffer != nil {
+			line := m.buffer.Lines[m.buffer.CursorRow]
+			clipboard.WriteAll(line)
+			m.clipboard = line
+		}
+		return m, nil
+
+	case tea.KeyCtrlX:
+		if m.buffer != nil {
+			line := m.buffer.Lines[m.buffer.CursorRow]
+			clipboard.WriteAll(line)
+			m.clipboard = line
+			m.buffer.DeleteLine()
+		}
+		return m, nil
+
+	case tea.KeyCtrlV:
+		if m.buffer != nil {
+			text, err := clipboard.ReadAll()
+			if err == nil && text != "" {
+				m.buffer.InsertString(text)
+				m.clipboard = text
+			}
+		}
+		return m, nil
+
+	case tea.KeyCtrlB:
+		// Markdown Bold
+		if m.buffer != nil {
+			m.buffer.InsertString("****")
+			m.buffer.MoveCursor(0, -2) // Cursor zwischen die ** setzen
+		}
+		return m, nil
+
+	case tea.KeyCtrlI:
+		// Markdown Italic
+		if m.buffer != nil {
+			m.buffer.InsertString("**")
+			m.buffer.MoveCursor(0, -1) // Cursor zwischen die * setzen
+		}
+		return m, nil
+
 	case tea.KeyEsc:
 		return m, nil
+
 	case tea.KeyUp:
 		if m.buffer != nil {
 			m.buffer.MoveCursor(-1, 0)
@@ -133,7 +196,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// Printable chars
 	if msg.Type == tea.KeyRunes {
 		if m.buffer != nil {
 			for _, r := range msg.Runes {
@@ -142,11 +204,24 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-
 	return m, nil
 }
 
-// toggleCurrentDir kollabiert/expandiert das aktuelle Verzeichnis (Backspace ohne Buffer).
+// saveBuffer speichert den Buffer auf Disk.
+func (m Model) saveBuffer() (tea.Model, tea.Cmd) {
+	if m.buffer == nil {
+		return m, nil
+	}
+	if err := m.buffer.Save(); err != nil {
+		m.saveError = err.Error()
+		m.mode = "SAVE-ERROR"
+	} else {
+		m.saveError = ""
+		m.mode = "EDIT"
+	}
+	return m, nil
+}
+
 func (m Model) toggleCurrentDir() (tea.Model, tea.Cmd) {
 	if m.cursorIdx < 0 || m.cursorIdx >= len(m.flatList) {
 		return m, nil
@@ -162,7 +237,6 @@ func (m Model) toggleCurrentDir() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// selectCurrent öffnet die selektierte Datei im Buffer.
 func (m Model) selectCurrent() (tea.Model, tea.Cmd) {
 	if m.cursorIdx < 0 || m.cursorIdx >= len(m.flatList) {
 		return m, nil
@@ -176,7 +250,6 @@ func (m Model) selectCurrent() (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
-	// Datei laden
 	buf, err := editor.LoadFromFile(node.Path)
 	if err == nil {
 		m.buffer = buf
@@ -208,7 +281,7 @@ func (m Model) View() string {
 		return "mdskim2 — beendet.\n"
 	}
 	if m.width == 0 || m.height == 0 {
-		return fmt.Sprintf("mdskim2 — Workspace: %s — R3 Editor+Buffer\n", m.workspacePath)
+		return fmt.Sprintf("mdskim2 — Workspace: %s — R4 Save+Clipboard\n", m.workspacePath)
 	}
 
 	header := m.layout.Header(m.workspacePath, m.theme)
@@ -217,11 +290,16 @@ func (m Model) View() string {
 	toc := m.layout.TOC(m.renderTOC(), m.theme, false)
 	body := m.layout.Compose(sidebar, editor, toc)
 
+	mode := m.mode
+	if m.saveError != "" {
+		mode = "ERR: " + m.saveError
+	}
+
 	statusInfo := ui.StatusInfo{
 		Workspace: m.workspacePath,
 		File:      m.currentFile,
 		Encoding:  "UTF-8",
-		Mode:      m.mode,
+		Mode:      mode,
 		Version:   m.version,
 	}
 	if m.buffer != nil {
@@ -245,7 +323,6 @@ func (m Model) renderSidebar() string {
 		line := m.treeRender.FormatNode(node)
 		if i == m.cursorIdx {
 			line = "▶ " + strings.TrimPrefix(line, " ")
-			_ = line
 		}
 		lines = append(lines, line)
 	}
@@ -270,19 +347,17 @@ func (m Model) renderTOC() string {
 	if m.buffer == nil {
 		return "INHALT\n──────\n▸ (Datei öffnen)"
 	}
-	// R5 füllt das mit Live-Headings
 	var tocLines []string
 	tocLines = append(tocLines, "INHALT")
 	tocLines = append(tocLines, "──────")
-	for i, line := range m.buffer.Lines {
+	for _, line := range m.buffer.Lines {
 		t := strings.TrimSpace(line)
 		if strings.HasPrefix(t, "# ") {
 			tocLines = append(tocLines, fmt.Sprintf("▸ %s", strings.TrimPrefix(t, "# ")))
-			_ = i
 		}
 	}
 	if len(tocLines) == 2 {
-		tocLines = append(tocLines, "(keine H1-H4)")
+		tocLines = append(tocLines, "(keine H1)")
 	}
 	return strings.Join(tocLines, "\n")
 }

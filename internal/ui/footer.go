@@ -12,14 +12,14 @@ type Shortcut struct {
 	Description string // "Save"
 }
 
-// DefaultShortcuts ist die initiale Liste globaler Shortcuts (R1-Bootstrap).
+// DefaultShortcuts ist die initiale Liste globaler Shortcuts (R4-Stand).
 func DefaultShortcuts() []Shortcut {
 	return []Shortcut{
 		{Key: "Ctrl+S", Description: "Save"},
-		{Key: "Ctrl+O", Description: "Open"},
-		{Key: "Ctrl+P", Description: "Open"},
+		{Key: "Ctrl+Z", Description: "Undo"},
+		{Key: "Ctrl+Y", Description: "Redo"},
+		{Key: "Ctrl+B", Description: "Bold"},
 		{Key: "Ctrl+F", Description: "Find"},
-		{Key: "Ctrl+Shift+P", Description: "Commands"},
 		{Key: "Ctrl+Q", Description: "Quit"},
 	}
 }

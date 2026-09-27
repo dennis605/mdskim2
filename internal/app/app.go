@@ -9,6 +9,7 @@ import (
 	"github.com/atotto/clipboard"
 
 	"github.com/dennis605/mdskim2/internal/editor"
+	"github.com/dennis605/mdskim2/internal/grep"
 	"github.com/dennis605/mdskim2/internal/markdown"
 	"github.com/dennis605/mdskim2/internal/preview"
 	"github.com/dennis605/mdskim2/internal/search"
@@ -60,6 +61,9 @@ type Model struct {
 	paletteActive  bool
 	paletteQuery   string
 
+	// R10: Workspace-Grep
+	workspaceHits  []grep.Hit
+
 	saveError string
 }
 
@@ -73,7 +77,7 @@ func New(workspacePath string) Model {
 		width:         120,
 		height:        40,
 		mode:          "EDIT",
-		version:       "R9: Command Palette",
+		version:       "R10: Polish + Stubs",
 		theme:         ui.Light(),
 		layout:        ui.DefaultLayout(),
 		workspace:     ws,

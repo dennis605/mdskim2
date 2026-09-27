@@ -1,6 +1,6 @@
 // Command mdskim2 ist der Entry-Point für die Terminal-Markdown-Anwendung.
 //
-// Verwendung:
+// Verwendung (Usage):
 //
 //	mdskim2 [WORKSPACE-PFAD]
 //
@@ -20,7 +20,7 @@ import (
 
 const usage = `mdskim2 — Modern Markdown Workspace for the Terminal
 
-Verwendung:
+Verwendung (Usage):
   mdskim2 [WORKSPACE-PFAD]
 
 Wenn kein WORKSPACE-PFAD angegeben ist, wird das aktuelle Verzeichnis benutzt.
@@ -33,7 +33,7 @@ Bedienung (alle Windows-artig, keine Vim-Modi):
   Ctrl+F        Suchen (in Datei)          (Sprint R6)
   Ctrl+H        Suchen und Ersetzen        (Sprint R6)
   Ctrl+P        Quick Open (Datei suchen)  (Sprint R8)
-  Ctrl+Shift+P  Command Palette            (Sprint R9)
+  Ctrl+K        Command Palette            (Sprint R9)
   Ctrl+B / I    Markdown Bold / Italic     (Sprint R4)
   Ctrl+N        Neue Datei                 (Sprint R4)
   Ctrl+W        Aktuelle Datei schließen   (Sprint R8)

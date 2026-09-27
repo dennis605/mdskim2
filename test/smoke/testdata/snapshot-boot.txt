@@ -92,5 +92,5 @@ FILES                   [INHALT
                         c                            
                         e                            
 ─                           
-… EDIT · R9: Command Palette
+… EDIT · R10: Polish + Stubs
 Ctrl+S Save │ Ctrl+Z Undo │ Ctrl+Y Redo │ Ctrl+B Bold │ Ctrl+T Quick Open │ Ctrl+P Preview │ Ctrl+K Palette │ Ctrl+Q Quit

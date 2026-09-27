@@ -1,0 +1,54 @@
+package ui
+
+import (
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+)
+
+// Shortcut repräsentiert einen anzuzeigenden Tastenkürzel im Footer.
+type Shortcut struct {
+	Key         string // "Ctrl+S"
+	Description string // "Save"
+}
+
+// DefaultShortcuts ist die initiale Liste globaler Shortcuts (R1-Bootstrap).
+func DefaultShortcuts() []Shortcut {
+	return []Shortcut{
+		{Key: "Ctrl+S", Description: "Save"},
+		{Key: "Ctrl+O", Description: "Open"},
+		{Key: "Ctrl+P", Description: "Open"},
+		{Key: "Ctrl+F", Description: "Find"},
+		{Key: "Ctrl+Shift+P", Description: "Commands"},
+		{Key: "Ctrl+Q", Description: "Quit"},
+	}
+}
+
+// RenderFooter erzeugt die untere Shortcut-Leiste.
+func (l *Layout) RenderFooter(shortcuts []Shortcut, theme Theme) string {
+	parts := make([]string, 0, len(shortcuts))
+	for _, s := range shortcuts {
+		key := theme.Shortcut.Render(s.Key)
+		desc := theme.Footer.Render(" " + s.Description)
+		parts = append(parts, key+desc)
+	}
+
+	content := lipgloss.JoinHorizontal(lipgloss.Top, joinWithSep(parts, " │ "))
+	padding := l.Width - lipgloss.Width(content)
+	if padding < 0 {
+		padding = 0
+	}
+
+	return strings.Repeat(" ", padding) + content
+}
+
+func joinWithSep(parts []string, sep string) string {
+	out := ""
+	for i, p := range parts {
+		if i > 0 {
+			out += sep
+		}
+		out += p
+	}
+	return out
+}

@@ -7,32 +7,32 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/dennis605/mdskim2/internal/editor"
 	"github.com/dennis605/mdskim2/internal/ui"
 	"github.com/dennis605/mdskim2/internal/workspace"
 )
 
 // Model ist der zentrale Anwendungs-State.
 type Model struct {
-	// Input
 	workspacePath string
 	width         int
 	height        int
 	quitting      bool
 
-	// Workspace + Tree
 	workspace  *workspace.Workspace
 	treeRender *workspace.TreeRenderer
-	cursorIdx  int // Index in der Tree-FlatList
+	cursorIdx  int
 	flatList   []*workspace.FileNode
 
-	// Editor (R3 - Stub für R2)
-	currentFile string
+	// Editor (R3)
+	buffer *editor.Buffer
 
-	// Status
-	mode    string
-	theme   ui.Theme
-	layout  ui.Layout
-	version string
+	// Display
+	currentFile string
+	mode        string
+	theme       ui.Theme
+	layout      ui.Layout
+	version     string
 }
 
 // New erzeugt einen frischen Anwendungs-Model.
@@ -46,7 +46,7 @@ func New(workspacePath string) Model {
 		width:         120,
 		height:        40,
 		mode:          "EDIT",
-		version:       "R2: Workspace + Tree",
+		version:       "R3: Editor + Buffer",
 		theme:         ui.Light(),
 		layout:        ui.DefaultLayout(),
 		workspace:     ws,
@@ -56,12 +56,8 @@ func New(workspacePath string) Model {
 	}
 }
 
-// Init ist beim Bubble-Tea-Start erforderlich.
-func (m Model) Init() tea.Cmd {
-	return nil
-}
+func (m Model) Init() tea.Cmd { return nil }
 
-// Update verarbeitet eingehende Messages.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -69,53 +65,79 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.layout.Compute(m.width, m.height)
 		return m, nil
-
 	case tea.KeyMsg:
 		return m.handleKey(msg)
-
 	case tea.MouseMsg:
 		return m.handleMouse(msg)
 	}
 	return m, nil
 }
 
-// handleKey verarbeitet Tastatur-Events.
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyCtrlQ:
 		m.quitting = true
 		return m, tea.Quit
-
 	case tea.KeyEsc:
 		return m, nil
-
 	case tea.KeyUp:
-		if m.cursorIdx > 0 {
+		if m.buffer != nil {
+			m.buffer.MoveCursor(-1, 0)
+		} else if m.cursorIdx > 0 {
 			m.cursorIdx--
 		}
 		return m, nil
-
 	case tea.KeyDown:
-		if m.cursorIdx < len(m.flatList)-1 {
+		if m.buffer != nil {
+			m.buffer.MoveCursor(1, 0)
+		} else if m.cursorIdx < len(m.flatList)-1 {
 			m.cursorIdx++
 		}
 		return m, nil
-
+	case tea.KeyLeft:
+		if m.buffer != nil {
+			m.buffer.MoveCursor(0, -1)
+		}
+		return m, nil
+	case tea.KeyRight:
+		if m.buffer != nil {
+			m.buffer.MoveCursor(0, 1)
+		}
+		return m, nil
+	case tea.KeyHome:
+		if m.buffer != nil {
+			m.buffer.Home()
+		}
+		return m, nil
+	case tea.KeyEnd:
+		if m.buffer != nil {
+			m.buffer.End()
+		}
+		return m, nil
 	case tea.KeyEnter:
+		if m.buffer != nil {
+			m.buffer.InsertNewLine()
+			return m, nil
+		}
 		return m.selectCurrent()
+	case tea.KeyBackspace:
+		if m.buffer != nil {
+			m.buffer.DeleteChar()
+			return m, nil
+		}
+		return m.toggleCurrentDir()
+	case tea.KeyDelete:
+		if m.buffer != nil {
+			m.buffer.DeleteCharForward()
+		}
+		return m, nil
 	}
 
-	switch msg.String() {
-	case "backspace":
-		// Parent-Verzeichnis: wenn cursor auf Sub-Dir, klappe zu
-		if m.cursorIdx >= 0 && m.cursorIdx < len(m.flatList) {
-			node := m.flatList[m.cursorIdx]
-			if node.IsDir {
-				m.treeRender.ToggleDir(node.Path)
-				m.flatList = m.workspace.FlatList(m.treeRender.CollapsedDirs)
-				if m.cursorIdx >= len(m.flatList) {
-					m.cursorIdx = len(m.flatList) - 1
-				}
+	// Printable chars
+	if msg.Type == tea.KeyRunes {
+		if m.buffer != nil {
+			for _, r := range msg.Runes {
+				m.buffer.InsertChar(r)
 			}
 		}
 		return m, nil
@@ -124,7 +146,23 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// selectCurrent öffnet das selektierte Item (Enter / Click).
+// toggleCurrentDir kollabiert/expandiert das aktuelle Verzeichnis (Backspace ohne Buffer).
+func (m Model) toggleCurrentDir() (tea.Model, tea.Cmd) {
+	if m.cursorIdx < 0 || m.cursorIdx >= len(m.flatList) {
+		return m, nil
+	}
+	node := m.flatList[m.cursorIdx]
+	if node.IsDir {
+		m.treeRender.ToggleDir(node.Path)
+		m.flatList = m.workspace.FlatList(m.treeRender.CollapsedDirs)
+		if m.cursorIdx >= len(m.flatList) {
+			m.cursorIdx = len(m.flatList) - 1
+		}
+	}
+	return m, nil
+}
+
+// selectCurrent öffnet die selektierte Datei im Buffer.
 func (m Model) selectCurrent() (tea.Model, tea.Cmd) {
 	if m.cursorIdx < 0 || m.cursorIdx >= len(m.flatList) {
 		return m, nil
@@ -136,24 +174,24 @@ func (m Model) selectCurrent() (tea.Model, tea.Cmd) {
 		if m.cursorIdx >= len(m.flatList) {
 			m.cursorIdx = len(m.flatList) - 1
 		}
-	} else {
-		// Datei: in Editor laden (R3 füllt Buffer, R2 zeigt nur Pfad)
+		return m, nil
+	}
+	// Datei laden
+	buf, err := editor.LoadFromFile(node.Path)
+	if err == nil {
+		m.buffer = buf
 		m.currentFile = node.Path
 		m.mode = "EDIT"
 	}
 	return m, nil
 }
 
-// handleMouse verarbeitet Maus-Events.
 func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if msg.Type != tea.MouseLeft {
 		return m, nil
 	}
-
-	// Sidebar-Spalte (1-basiert: Spalte 0 bis SidebarWidth-1)
 	if msg.X >= 1 && msg.X < m.layout.SidebarWidth-1 {
-		// Konvertiere Y in Tree-Index
-		idx := msg.Y - 2 // 1 = Header, 1 = Sidebar-Label, danach Tree
+		idx := msg.Y - 2
 		if idx < 0 {
 			idx = 0
 		}
@@ -162,29 +200,21 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			return m.selectCurrent()
 		}
 	}
-
 	return m, nil
 }
 
-// View rendert den aktuellen State als String.
 func (m Model) View() string {
 	if m.quitting {
 		return "mdskim2 — beendet.\n"
 	}
-
 	if m.width == 0 || m.height == 0 {
-		return fmt.Sprintf("mdskim2 — Workspace: %s — R2 Workspace+Tree\n", m.workspacePath)
+		return fmt.Sprintf("mdskim2 — Workspace: %s — R3 Editor+Buffer\n", m.workspacePath)
 	}
 
 	header := m.layout.Header(m.workspacePath, m.theme)
-
-	sidebarContent := m.renderSidebar()
-	editorContent := m.renderEditor()
-	tocContent := m.renderTOC()
-
-	sidebar := m.layout.Sidebar(sidebarContent, m.theme, true)
-	editor := m.layout.Editor(editorContent, m.theme, false)
-	toc := m.layout.TOC(tocContent, m.theme, false)
+	sidebar := m.layout.Sidebar(m.renderSidebar(), m.theme, true)
+	editor := m.layout.Editor(m.renderEditor(), m.theme, m.buffer != nil)
+	toc := m.layout.TOC(m.renderTOC(), m.theme, false)
 	body := m.layout.Compose(sidebar, editor, toc)
 
 	statusInfo := ui.StatusInfo{
@@ -194,62 +224,69 @@ func (m Model) View() string {
 		Mode:      m.mode,
 		Version:   m.version,
 	}
+	if m.buffer != nil {
+		statusInfo.Lines = m.buffer.TotalLines()
+		statusInfo.Words = m.buffer.TotalWords()
+		statusInfo.Modified = m.buffer.Modified
+	}
 	status := m.layout.RenderStatus(statusInfo, m.theme)
 	footer := m.layout.RenderFooter(ui.DefaultShortcuts(), m.theme)
 
 	return strings.Join([]string{header, body, status, footer}, "\n")
 }
 
-// renderSidebar rendert den FileTree mit Selection.
 func (m Model) renderSidebar() string {
 	if m.workspace == nil {
 		return "FILES\n(kein Workspace)"
 	}
-
 	var lines []string
 	lines = append(lines, "FILES")
-
 	for i, node := range m.flatList {
 		line := m.treeRender.FormatNode(node)
 		if i == m.cursorIdx {
-			line = "▶ " + strings.TrimPrefix(line, "")
+			line = "▶ " + strings.TrimPrefix(line, " ")
+			_ = line
 		}
 		lines = append(lines, line)
 	}
-
 	if m.workspace.TotalFiles() == 0 {
 		lines = append(lines, "(leer)")
 	}
-
 	return strings.Join(lines, "\n")
 }
 
-// renderEditor rendert den Editor-Inhalt.
 func (m Model) renderEditor() string {
-	if m.currentFile == "" {
-		heading := "# Welcome to mdskim2"
-		para := "Modern Markdown Workspace for the Terminal.\n" +
-			"Obsidian/VS Code feel, no vim modes, single binary.\n\n" +
-			"Sprint " + m.version + "\n\n" +
-			"Workspace: " + m.workspacePath + "\n\n" +
-			"↑↓ navigieren · Enter öffnet · Backspace klappt zu"
-		return heading + "\n\n" + para
+	if m.buffer == nil {
+		return "# Willkommen bei mdskim2\n\n" +
+			"↑↓ in Sidebar · Enter öffnet File\n\n" +
+			"Workspace: " + m.workspacePath
 	}
-
 	heading := "# " + trimPath(m.currentFile, 40)
-	body := "(Editor-Buffer kommt in R3)\n\nAktuelle Datei:\n" + m.currentFile
+	body := m.buffer.ToString()
 	return heading + "\n\n" + body
 }
 
-// renderTOC rendert das Inhaltsverzeichnis (R5 füllt es live).
 func (m Model) renderTOC() string {
-	if m.currentFile == "" {
+	if m.buffer == nil {
 		return "INHALT\n──────\n▸ (Datei öffnen)"
 	}
-	return "INHALT\n──────\n(TOC kommt in R5)"
+	// R5 füllt das mit Live-Headings
+	var tocLines []string
+	tocLines = append(tocLines, "INHALT")
+	tocLines = append(tocLines, "──────")
+	for i, line := range m.buffer.Lines {
+		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "# ") {
+			tocLines = append(tocLines, fmt.Sprintf("▸ %s", strings.TrimPrefix(t, "# ")))
+			_ = i
+		}
+	}
+	if len(tocLines) == 2 {
+		tocLines = append(tocLines, "(keine H1-H4)")
+	}
+	return strings.Join(tocLines, "\n")
 }
 
-// trimPath kürzt einen langen Pfad für die Anzeige.
 func trimPath(path string, max int) string {
 	if len(path) <= max {
 		return path

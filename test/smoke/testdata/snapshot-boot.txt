@@ -1,14 +1,18 @@
  mdskim2 — /tmp/sample-workspace 
 FILES                   #INHALT                      
 ▶ ▾ sample-workspace    W──────                      
-(leer)                  e▸ (Datei öffnen)            
+(leer)                  i▸ (Datei öffnen)            
                         l                            
-                        c                            
+                        l                            
+                        k                            
                         o                            
                         m                            
+                        m                            
                         e                            
-                        t                            
-                        o                            
+                        n                            
+                        b                            
+                        e                            
+                        i                            
                         m                            
                         d                            
                         s                            
@@ -17,111 +21,32 @@ FILES                   #INHALT
                         m                            
                         2                            
                                                      
-                        M                            
-                        o                            
-                        d                            
-                        e                            
-                        r                            
-                        n                            
-                        M                            
-                        a                            
-                        r                            
-                        k                            
-                        d                            
-                        o                            
-                        w                            
-                        n                            
-                        W                            
-                        o                            
-                        r                            
-                        k                            
-                        s                            
-                        p                            
-                        a                            
-                        c                            
-                        e                            
-                        f                            
-                        o                            
-                        r                            
-                        t                            
-                        h                            
-                        e                            
-                        T                            
-                        e                            
-                        r                            
-                        m                            
+                        ↑                            
+                        ↓                            
                         i                            
                         n                            
-                        a                            
-                        l                            
-                        .                            
-                        O                            
-                        b                            
-                        s                            
-                        i                            
-                        d                            
-                        i                            
-                        a                            
-                        n                            
-                        /                            
-                        V                            
                         S                            
-                        C                            
-                        o                            
-                        d                            
-                        e                            
-                        f                            
-                        e                            
-                        e                            
-                        l                            
-                        ,                            
-                        n                            
-                        o                            
-                        v                            
                         i                            
-                        m                            
-                        m                            
-                        o                            
                         d                            
-                        e                            
-                        s                            
-                        ,                            
-                        s                            
-                        i                            
-                        n                            
-                        g                            
-                        l                            
                         e                            
                         b                            
-                        i                            
-                        n                            
                         a                            
                         r                            
-                        y                            
-                        .                            
-                                                     
-                        S                            
-                        p                            
-                        r                            
-                        i                            
+                        ·                            
+                        E                            
                         n                            
                         t                            
-                        R                            
-                        2                            
-                        :                            
-                        W                            
-                        o                            
-                        r                            
-                        k                            
-                        s                            
-                        p                            
-                        a                            
-                        c                            
                         e                            
-                        +                            
-                        T                            
                         r                            
+                        ö                            
+                        f                            
+                        f                            
+                        n                            
                         e                            
+                        t                            
+                        F                            
+                        i                            
+                        l                            
                         e                            
                                                      
                         W                            
@@ -155,49 +80,6 @@ FILES                   #INHALT
                         a                            
                         c                            
                         e                            
-                                                     
-                        ↑                            
-                        ↓                            
-                        n                            
-                        a                            
-                        v                            
-                        i                            
-                        g                            
-                        i                            
-                        e                            
-                        r                            
-                        e                            
-                        n                            
-                        ·                            
-                        E                            
-                        n                            
-                        t                            
-                        e                            
-                        r                            
-                        ö                            
-                        f                            
-                        f                            
-                        n                            
-                        e                            
-                        t                            
-                        ·                            
-                        B                            
-                        a                            
-                        c                            
-                        k                            
-                        s                            
-                        p                            
-                        a                            
-                        c                            
-                        e                            
-                        k                            
-                        l                            
-                        a                            
-                        p                            
-                        p                            
-                        t                            
-                        z                            
-                        u                            
-─                            
-… EDIT · R2: Workspace + Tree
+─                           
+… EDIT · R3: Editor + Buffer
 Ctrl+S Save │ Ctrl+O Open │ Ctrl+P Open │ Ctrl+F Find │ Ctrl+Shift+P Commands │ Ctrl+Q Quit

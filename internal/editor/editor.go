@@ -25,6 +25,9 @@ type Buffer struct {
 	// U3: Selection (anchor..head sortiert)
 	SelAnchorRow int // Selection-Anker (oder -1 wenn keine Selection)
 	SelAnchorCol int
+
+	// U4: LineEnding-Detection
+	LineEnding string // "\n", "\r\n" oder "\r"
 }
 
 // LoadFromFile liest eine Datei in den Buffer.
@@ -38,13 +41,16 @@ func LoadFromFile(path string) (*Buffer, error) {
 		return nil, err
 	}
 
-	lines := strings.Split(content, "\n")
+	// Line-Ending-Detection
+	lineEnding := detectLineEnding(content)
+	lines := strings.Split(content, lineEnding)
 	b := &Buffer{
-		Lines:      lines,
-		History:    [][]string{copyLines(lines)},
-		HistoryIdx: 0,
-		HistoryMax: 50,
-		Path:       path,
+		Lines:       lines,
+		History:     [][]string{copyLines(lines)},
+		HistoryIdx:  0,
+		HistoryMax:  50,
+		Path:        path,
+		LineEnding: lineEnding,
 	}
 	return b, nil
 }
@@ -316,6 +322,10 @@ func (b *Buffer) Save() error {
 		return &NoPathError{}
 	}
 	content := b.ToString()
+	// Apply detected line ending if not \n default
+	if b.LineEnding != "" && b.LineEnding != "\n" {
+		content = strings.ReplaceAll(content, "\n", b.LineEnding)
+	}
 	if err := workspace.WriteFile(b.Path, content); err != nil {
 		return err
 	}
@@ -731,4 +741,14 @@ func (b *Buffer) LineIndent(row int) string {
 		}
 	}
 	return line
+}
+// detectLineEnding detects whether content uses CRLF, CR, or LF line endings.
+func detectLineEnding(content string) string {
+	lineEnding := "\n"
+	if strings.Contains(content, "\r\n") {
+		lineEnding = "\r\n"
+	} else if strings.Contains(content, "\r") {
+		lineEnding = "\r"
+	}
+	return lineEnding
 }

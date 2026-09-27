@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/atotto/clipboard"
@@ -13,6 +14,7 @@ import (
 	"github.com/dennis605/mdskim2/internal/grep"
 	"github.com/dennis605/mdskim2/internal/markdown"
 	"github.com/dennis605/mdskim2/internal/preview"
+	"github.com/dennis605/mdskim2/internal/recent"
 	"github.com/dennis605/mdskim2/internal/search"
 	"github.com/dennis605/mdskim2/internal/palette"
 	"github.com/dennis605/mdskim2/internal/tabs"
@@ -52,6 +54,7 @@ type Model struct {
 	tabs           *tabs.Manager
 	quickOpenMode  bool
 	quickOpenQuery string
+	quickOpenList  []string
 
 	theme   ui.Theme
 	layout  ui.Layout
@@ -75,14 +78,25 @@ type Model struct {
 	goToLineMode  bool
 	editorScrollOffset int
 	goToLineQuery string
+
+	// U4: Editor-Features (Read-Only, Whitespace, Bracket-Match)
+	readOnly       bool
+	whitespaceMark bool  // Ctrl+Shift+W — Zeige Tabs und trailing Spaces
+
+	// U4: Persistence
+	recent       *recent.List
+	autoSaveTick int
+	autoSavedAt  string // Zeitstempel für Anzeige
 }
 
 func New(workspacePath string) Model {
+	rec := recent.New()
 	ws, _ := workspace.Load(workspacePath)
 	r := workspace.NewTreeRenderer()
 	flat := ws.FlatList(r.CollapsedDirs)
 
 	m := Model{
+		recent:        rec,
 		workspacePath: workspacePath,
 		width:         120,
 		height:        40,
@@ -107,13 +121,47 @@ func New(workspacePath string) Model {
 	m.palette.Register(palette.Command{Name: "bold", Description: "Insert bold markup", Keywords: []string{"strong"}})
 	m.palette.Register(palette.Command{Name: "italic", Description: "Insert italic markup", Keywords: []string{"em"}})
 	m.palette.Register(palette.Command{Name: "quit", Description: "Quit application", Keywords: []string{"exit", "close"}})
+	m.palette.Register(palette.Command{Name: "recent", Description: "Open Recent Files list", Keywords: []string{"recent", "history"}, OnRun: func() {
+		m.paletteActive = false
+		// Build quick-open for recent
+		m.quickOpenMode = true
+		m.quickOpenQuery = ""
+		m.quickOpenList = nil
+		for _, rf := range m.recent.All() {
+			m.quickOpenList = append(m.quickOpenList, rf.Display+": "+rf.Path)
+		}
+	}})
+	m.palette.Register(palette.Command{Name: "readonly", Description: "Toggle Read-Only mode for current file", Keywords: []string{"ro", "lock", "readonly"}, OnRun: func() {
+		m.readOnly = !m.readOnly
+	}})
+	m.palette.Register(palette.Command{Name: "lineending", Description: "Show line ending indicator for current file", Keywords: []string{"lf", "crlf", "le"}, OnRun: func() {
+		// Cycle LF -> CRLF -> CR -> LF
+		if m.buffer != nil { switch m.buffer.LineEnding { case "\n": m.buffer.LineEnding = "\r\n"; case "\r\n": m.buffer.LineEnding = "\r"; default: m.buffer.LineEnding = "\n" } }
+	}})
 	return m
 }
 
-func (m Model) Init() tea.Cmd { return nil }
+func (m Model) Init() tea.Cmd {
+	return tea.Batch(
+		tea.Tick(30*time.Second, func(t time.Time) tea.Msg { return autoSaveTickMsg(t) }),
+	)
+}
+
+type autoSaveTickMsg time.Time
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case autoSaveTickMsg:
+		if m.buffer != nil && m.buffer.Modified && m.buffer.Path != "" {
+			err := m.buffer.Save()
+			if err == nil {
+				m.saveError = ""
+				m.autoSavedAt = time.Now().Format("15:04:05")
+			} else {
+				m.saveError = err.Error()
+			}
+		}
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -175,7 +223,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyCtrlT:
 		// Toggle Quick-Open
 		m.quickOpenMode = !m.quickOpenMode
-		if !m.quickOpenMode {
+		if m.quickOpenMode {
+			m.quickOpenList = nil
+			for _, node := range m.flatList {
+				m.quickOpenList = append(m.quickOpenList, node.Path)
+			}
+		} else {
 			m.quickOpenQuery = ""
 		}
 		return m, nil
@@ -196,9 +249,32 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyCtrlW:
+		if msg.String() == "ctrl+shift+w" {
+			// Whitespace-Indicator Toggle
+			m.whitespaceMark = !m.whitespaceMark
+			return m, nil
+		}
 		// Soft-Wrap Toggle
 		m.lineWrap = !m.lineWrap
 		return m, nil
+
+	case tea.KeyCtrlR:
+		if msg.String() == "ctrl+shift+r" {
+			// Read-Only Toggle (Ctrl+Shift+R)
+			m.readOnly = !m.readOnly
+			return m, nil
+		}
+		if msg.String() == "ctrl+l" {
+			// Reload from disk (Ctrl+L)
+			if m.buffer != nil && m.buffer.Path != "" {
+				buf, err := editor.LoadFromFile(m.buffer.Path)
+				if err == nil {
+					m.buffer = buf
+					return m, nil
+				}
+			}
+			return m, nil
+		}
 
 	case tea.KeyCtrlG:
 		// Go-to-line Modal
@@ -394,6 +470,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Sonst: selectCurrent (legacy fallback)
 		return m.selectCurrent()
 	case tea.KeyBackspace:
+		if m.readOnly && m.buffer != nil {
+			return m, nil
+		}
+		m.autoSavedAt = ""
 		if m.goToLineMode && m.goToLineQuery != "" {
 			m.goToLineQuery = m.goToLineQuery[:len(m.goToLineQuery)-1]
 			return m, nil
@@ -419,6 +499,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if msg.Type == tea.KeyRunes {
+		if m.readOnly && m.buffer != nil {
+			return m, nil
+		}
+		m.autoSavedAt = ""
 		// Go-to-line Mode: Query aufbauen
 		if m.goToLineMode {
 			for _, r := range msg.Runes {
@@ -493,6 +577,7 @@ func (m Model) selectCurrent() (tea.Model, tea.Cmd) {
 	buf, err := editor.LoadFromFile(node.Path)
 	if err == nil {
 		m.buffer = buf
+		m.recent.Add(node.Path)
 		m.currentFile = node.Path
 		m.mode = "EDIT"
 		if m.tabs != nil {
@@ -519,6 +604,7 @@ func (m Model) autoOpenAtCursor() {
 	buf, err := editor.LoadFromFile(node.Path)
 	if err == nil {
 		m.buffer = buf
+		m.recent.Add(node.Path)
 		m.currentFile = node.Path
 		m.mode = "EDIT"
 		if m.tabs != nil {
@@ -654,7 +740,15 @@ func (m Model) renderEditor() string {
 	if m.lineWrap {
 		wrapMark = " \x1b[2;37m[WRAP]\x1b[0m"
 	}
-	headerLine := focusMark + " \x1b[1;37m" + trimPath(m.currentFile, 50) + "\x1b[0m " + dirtyMark + wrapMark
+	readOnlyMark := "  "
+	if m.readOnly {
+		readOnlyMark = " \x1b[48;5;130m\x1b[1;37m[RO]\x1b[0m"
+	}
+	autoSavedMark := ""
+	if m.autoSavedAt != "" {
+		autoSavedMark = fmt.Sprintf(" \x1b[48;5;236m\x1b[1;32m[AUTO-SAVED %s]\x1b[0m", m.autoSavedAt)
+	}
+	headerLine := focusMark + " \x1b[1;37m" + trimPath(m.currentFile, 50) + "\x1b[0m " + dirtyMark + readOnlyMark + wrapMark + autoSavedMark
 
 	// Selection-Range
 	srSel, scSel, erSel, ecSel, hasSel := m.buffer.SelectionRange()
@@ -681,6 +775,15 @@ func (m Model) renderEditor() string {
 		}
 	}
 
+	// Bracket-Match: find matching char if cursor on bracket
+	var brRow, brCol int
+	var hasBracket bool
+	if m.focus == "editor" && m.buffer != nil {
+		brRow, brCol, hasBracket = findMatchingBracket(m.buffer.Lines, m.buffer.CursorRow, m.buffer.CursorCol)
+		_ = brRow
+		_ = brCol
+	}
+
 	var bodyLines []string
 	for i := visibleStart; i < visibleEnd; i++ {
 		line := m.buffer.Lines[i]
@@ -693,8 +796,12 @@ func (m Model) renderEditor() string {
 		}
 
 		// Build content with highlighting
+		displayLine := line
+		if m.whitespaceMark {
+			displayLine = renderWhitespace(line)
+		}
 		p := markdown.HighlightParams{CurrentLine: m.buffer.CursorRow}
-		rendered := markdown.HighlightLineWith(line, p, i)
+		rendered := markdown.HighlightLineWith(displayLine, p, i)
 
 		// Selection-Markierung: reverse-video Background auf markiertem Bereich
 		if hasSel && i >= srSel && i <= erSel {
@@ -704,6 +811,14 @@ func (m Model) renderEditor() string {
 		// Block-Cursor an CursorCol
 		if i == m.buffer.CursorRow && m.focus == "editor" {
 			rendered = injectBlockCursor(rendered, line, m.buffer.CursorCol)
+		}
+
+		// Bracket-Match-Highlight auf der matchenden Zeile
+		if hasBracket && i == brRow {
+			runes := []rune(line)
+			if brCol >= 0 && brCol < len(runes) {
+				rendered = injectCharHighlight(rendered, line, brCol, "\x1b[48;5;220m\x1b[30m", "\x1b[0m")
+			}
 		}
 
 		bodyLines = append(bodyLines, numFmt+" │ "+rendered)
@@ -733,6 +848,14 @@ func (m Model) renderEditor() string {
 	cursorPos := fmt.Sprintf("\x1b[48;5;236m \x1b[1;33m Ln %d/%d \x1b[0m\x1b[48;5;236m \x1b[33m Col %d/%d \x1b[0m",
 		m.buffer.CursorRow+1, totalLines, m.buffer.CursorCol+1, currentLineLen)
 	counters := fmt.Sprintf("\x1b[2;37m Words %d · Chars %d \x1b[0m", wc, cc)
+	// Line-Ending-Indicator (U4)
+	lineEndMark := "LF"
+	if m.buffer.LineEnding == "\r\n" {
+		lineEndMark = "CRLF"
+	} else if m.buffer.LineEnding == "\r" {
+		lineEndMark = "CR"
+	}
+	lineEndingStat := fmt.Sprintf(" \x1b[2;37mEOL %s \x1b[0m", lineEndMark)
 	hints := "\x1b[2;37m [Shift+Arrows] Sel · [Ctrl+D] Dup · [Ctrl+G] Go-to · [Ctrl+W] Wrap \x1b[0m"
 
 	// Optional: Go-to-line Modal-Bar
@@ -741,7 +864,7 @@ func (m Model) renderEditor() string {
 		gotoBar = "\n\x1b[48;5;240m\x1b[1;37m Go to line: \x1b[0m\x1b[1;33m" + m.goToLineQuery + "_\x1b[0m"
 	}
 
-	return headerLine + "\n" + body + "\n" + cursorPos + " " + counters + " " + scrollInfo + "\n" + hints + gotoBar
+	return headerLine + "\n" + body + "\n" + cursorPos + " " + counters + lineEndingStat + " " + scrollInfo + "\n" + hints + gotoBar
 }
 
 // editorViewportHeight returns the available height for the editor content.
@@ -900,4 +1023,112 @@ func (m Model) TocText() string {
 // HeadingsCount returns number of headings in current buffer.
 func (m Model) HeadingsCount() int {
 	return len(m.tocHeadings())
+}
+
+// findMatchingBracket returns the (row, col) of the matching bracket for the char at (row, col).
+func findMatchingBracket(lines []string, row, col int) (mr int, mc int, ok bool) {
+	if row < 0 || row >= len(lines) {
+		return 0, 0, false
+	}
+	line := []rune(lines[row])
+	if col < 0 || col >= len(line) {
+		return 0, 0, false
+	}
+	ch := line[col]
+	openBrackets := map[rune]rune{'(': ')', '[': ']', '{': '}', '<': '>'}
+	closeBrackets := map[rune]rune{')': '(', ']': '[', '}': '{', '>': '<'}
+	if open, isOpen := openBrackets[ch]; isOpen {
+		// Search forward
+		depth := 1
+		r := row
+		c := col + 1
+		for r < len(lines) {
+			lr := []rune(lines[r])
+			if c >= len(lr) {
+				r++
+				c = 0
+				continue
+			}
+			if lr[c] == open {
+				depth++
+			} else if lr[c] == ch {
+				// Different opening-style delimiter; skip
+			} else if lr[c] == ')' || lr[c] == ']' || lr[c] == '}' || lr[c] == '>' {
+				if closeBrackets[lr[c]] != ch {
+					// different bracket class, skip
+				} else {
+					depth--
+					if depth == 0 {
+						return r, c, true
+					}
+				}
+			}
+			c++
+		}
+		return 0, 0, false
+	}
+	if _, isClose := closeBrackets[ch]; isClose {
+		// Search backward
+		depth := 1
+		r := row
+		c := col - 1
+		for r >= 0 {
+			lr := []rune(lines[r])
+			for c >= 0 {
+				switch lr[c] {
+				case ')', ']', '}', '>':
+					depth++
+				case '(', '[', '{', '<':
+					depth--
+					if depth == 0 {
+						return r, c, true
+					}
+				}
+				c--
+			}
+			r--
+			if r >= 0 {
+				c = len([]rune(lines[r])) - 1
+			}
+		}
+		return 0, 0, false
+	}
+	return 0, 0, false
+}
+
+// injectCharHighlight wraps a single character at col in line with prefix/suffix.
+func injectCharHighlight(rendered string, originalLine string, col int, prefix string, suffix string) string {
+	runes := []rune(originalLine)
+	if col >= len(runes) {
+		return rendered + prefix + " " + suffix
+	}
+	before := string(runes[:col])
+	after := ""
+	if col+1 < len(runes) {
+		after = string(runes[col+1:])
+	}
+	return before + prefix + string(runes[col]) + suffix + after
+}
+
+// renderWhitespace rewrites trailing spaces as · and tabs as → in a string.
+// keeps internal whitespace clean.
+func renderWhitespace(s string) string {
+	runes := []rune(s)
+	// Find last non-whitespace index
+	lastNonWS := len(runes) - 1
+	for lastNonWS >= 0 && (runes[lastNonWS] == ' ' || runes[lastNonWS] == '\t') {
+		lastNonWS--
+	}
+	var out []byte
+	for i, ch := range runes {
+		switch {
+		case ch == '\t':
+			out = append(out, []byte("\x1b[2;37m→\x1b[0m")...)
+		case ch == ' ' && i > lastNonWS:
+			out = append(out, []byte("\x1b[2;37m·\x1b[0m")...)
+		default:
+			out = append(out, []byte(string(ch))...)
+		}
+	}
+	return string(out)
 }

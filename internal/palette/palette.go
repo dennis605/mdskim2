@@ -11,6 +11,7 @@ type Command struct {
 	Name        string
 	Description string
 	Keywords    []string
+	OnRun       func() // optional callback beim Run
 }
 
 // Registry hält alle verfügbaren Commands.
@@ -38,6 +39,9 @@ func (r *Registry) Run(name string) (string, bool) {
 	cmd, ok := r.commands[name]
 	if !ok {
 		return "", false
+	}
+	if cmd.OnRun != nil {
+		cmd.OnRun()
 	}
 	return cmd.Description, true
 }

@@ -9,11 +9,11 @@ import (
 	"github.com/atotto/clipboard"
 
 	"github.com/dennis605/mdskim2/internal/editor"
+	"github.com/dennis605/mdskim2/internal/markdown"
 	"github.com/dennis605/mdskim2/internal/ui"
 	"github.com/dennis605/mdskim2/internal/workspace"
 )
 
-// Model ist der zentrale Anwendungs-State.
 type Model struct {
 	workspacePath string
 	width         int
@@ -27,7 +27,7 @@ type Model struct {
 
 	buffer      *editor.Buffer
 	clipboard   string
-	selection   string // für R5: aktuelle Selection
+	selection   string
 	mode        string
 	currentFile string
 
@@ -35,7 +35,6 @@ type Model struct {
 	layout  ui.Layout
 	version string
 
-	// Save-Status
 	saveError string
 }
 
@@ -49,7 +48,7 @@ func New(workspacePath string) Model {
 		width:         120,
 		height:        40,
 		mode:          "EDIT",
-		version:       "R4: Save + Clipboard",
+		version:       "R5: MD-Highlight + TOC",
 		theme:         ui.Light(),
 		layout:        ui.DefaultLayout(),
 		workspace:     ws,
@@ -80,31 +79,25 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyCtrlQ:
 		m.quitting = true
 		return m, tea.Quit
-
 	case tea.KeyCtrlS:
 		return m.saveBuffer()
-
 	case tea.KeyCtrlZ:
 		if m.buffer != nil {
 			m.buffer.Undo()
 		}
 		return m, nil
-
 	case tea.KeyCtrlY:
 		if m.buffer != nil {
 			m.buffer.Redo()
 		}
 		return m, nil
-
 	case tea.KeyCtrlC:
-		// Wenn Buffer aktiv: Copy line (Selection kommt in R5)
 		if m.buffer != nil {
 			line := m.buffer.Lines[m.buffer.CursorRow]
 			clipboard.WriteAll(line)
 			m.clipboard = line
 		}
 		return m, nil
-
 	case tea.KeyCtrlX:
 		if m.buffer != nil {
 			line := m.buffer.Lines[m.buffer.CursorRow]
@@ -113,7 +106,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.buffer.DeleteLine()
 		}
 		return m, nil
-
 	case tea.KeyCtrlV:
 		if m.buffer != nil {
 			text, err := clipboard.ReadAll()
@@ -123,26 +115,20 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
-
 	case tea.KeyCtrlB:
-		// Markdown Bold
 		if m.buffer != nil {
 			m.buffer.InsertString("****")
-			m.buffer.MoveCursor(0, -2) // Cursor zwischen die ** setzen
+			m.buffer.MoveCursor(0, -2)
 		}
 		return m, nil
-
 	case tea.KeyCtrlI:
-		// Markdown Italic
 		if m.buffer != nil {
 			m.buffer.InsertString("**")
-			m.buffer.MoveCursor(0, -1) // Cursor zwischen die * setzen
+			m.buffer.MoveCursor(0, -1)
 		}
 		return m, nil
-
 	case tea.KeyEsc:
 		return m, nil
-
 	case tea.KeyUp:
 		if m.buffer != nil {
 			m.buffer.MoveCursor(-1, 0)
@@ -207,7 +193,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// saveBuffer speichert den Buffer auf Disk.
 func (m Model) saveBuffer() (tea.Model, tea.Cmd) {
 	if m.buffer == nil {
 		return m, nil
@@ -281,13 +266,13 @@ func (m Model) View() string {
 		return "mdskim2 — beendet.\n"
 	}
 	if m.width == 0 || m.height == 0 {
-		return fmt.Sprintf("mdskim2 — Workspace: %s — R4 Save+Clipboard\n", m.workspacePath)
+		return fmt.Sprintf("mdskim2 — Workspace: %s — R5 MD-Highlight\n", m.workspacePath)
 	}
 
 	header := m.layout.Header(m.workspacePath, m.theme)
 	sidebar := m.layout.Sidebar(m.renderSidebar(), m.theme, true)
 	editor := m.layout.Editor(m.renderEditor(), m.theme, m.buffer != nil)
-	toc := m.layout.TOC(m.renderTOC(), m.theme, false)
+	toc := m.layout.TOC(m.renderTOC(), m.theme, len(m.tocHeadings()) > 0)
 	body := m.layout.Compose(sidebar, editor, toc)
 
 	mode := m.mode
@@ -334,30 +319,40 @@ func (m Model) renderSidebar() string {
 
 func (m Model) renderEditor() string {
 	if m.buffer == nil {
-		return "# Willkommen bei mdskim2\n\n" +
+		return "[NO-BUFFER] # Willkommen bei mdskim2\n\n" +
 			"↑↓ in Sidebar · Enter öffnet File\n\n" +
 			"Workspace: " + m.workspacePath
 	}
-	heading := "# " + trimPath(m.currentFile, 40)
-	body := m.buffer.ToString()
-	return heading + "\n\n" + body
+	var highlighted []string
+	p := markdown.HighlightParams{CurrentLine: m.buffer.CursorRow}
+	for _, line := range m.buffer.Lines {
+		highlighted = append(highlighted, markdown.HighlightLine(line, p))
+	}
+	heading := "[BUFFER-OPEN] # " + trimPath(m.currentFile, 40)
+	highlightedHeading := markdown.HighlightLine(heading, p)
+	return strings.Join([]string{highlightedHeading, "", strings.Join(highlighted, "\n")}, "\n")
+}
+
+func (m Model) tocHeadings() []markdown.Heading {
+	if m.buffer == nil {
+		return nil
+	}
+	return markdown.Headings(m.buffer.ToString())
 }
 
 func (m Model) renderTOC() string {
-	if m.buffer == nil {
+	hs := m.tocHeadings()
+	if len(hs) == 0 {
 		return "INHALT\n──────\n▸ (Datei öffnen)"
 	}
-	var tocLines []string
-	tocLines = append(tocLines, "INHALT")
-	tocLines = append(tocLines, "──────")
-	for _, line := range m.buffer.Lines {
-		t := strings.TrimSpace(line)
-		if strings.HasPrefix(t, "# ") {
-			tocLines = append(tocLines, fmt.Sprintf("▸ %s", strings.TrimPrefix(t, "# ")))
+	tocLines := []string{"INHALT", "──────"}
+	for _, h := range hs {
+		indent := strings.Repeat("  ", h.Level-1)
+		bullet := "▸"
+		if h.Level == 1 {
+			bullet = "▾"
 		}
-	}
-	if len(tocLines) == 2 {
-		tocLines = append(tocLines, "(keine H1)")
+		tocLines = append(tocLines, fmt.Sprintf("%s%s %s", indent, bullet, h.Text))
 	}
 	return strings.Join(tocLines, "\n")
 }
@@ -367,4 +362,66 @@ func trimPath(path string, max int) string {
 		return path
 	}
 	return "…" + path[len(path)-max+1:]
+}
+
+// Quitting returns true wenn Ctrl+Q gedrückt wurde.
+func (m Model) Quitting() bool { return m.quitting }
+
+// FlatList returns the FlatList for testing.
+func (m Model) FlatList() []*workspace.FileNode { return m.flatList }
+
+// WithCursor returns a copy with cursorIdx set.
+func (m Model) WithCursor(idx int) Model {
+	if idx >= 0 {
+		m.cursorIdx = idx
+	}
+	return m
+}
+
+// CurrentFile returns the current file path.
+func (m Model) CurrentFile() string { return m.currentFile }
+
+// Cursor returns current cursor position.
+func (m Model) Cursor() int { return m.cursorIdx }
+
+func (m Model) Buffer() *editor.Buffer { return m.buffer }
+
+// IsBufferOpen returns true if the buffer is loaded.
+func (m Model) IsBufferOpen() bool { return m.buffer != nil }
+
+// HighlightedLines returns the buffer content with ANSI-highlight applied per line.
+// Public for testing — bypasses lipgloss width constraint.
+func (m Model) HighlightedLines() []string {
+	if m.buffer == nil {
+		return nil
+	}
+	var hl []string
+	p := markdown.HighlightParams{CurrentLine: m.buffer.CursorRow}
+	for _, line := range m.buffer.Lines {
+		hl = append(hl, markdown.HighlightLine(line, p))
+	}
+	return hl
+}
+
+// TocText returns the TOC pane content (hierarchical headings).
+func (m Model) TocText() string {
+	hs := m.tocHeadings()
+	if len(hs) == 0 {
+		return "INHALT\n──────\n▸ (Datei öffnen)"
+	}
+	tocLines := []string{"INHALT", "──────"}
+	for _, h := range hs {
+		indent := strings.Repeat("  ", h.Level-1)
+		bullet := "▸"
+		if h.Level == 1 {
+			bullet = "▾"
+		}
+		tocLines = append(tocLines, fmt.Sprintf("%s%s %s", indent, bullet, h.Text))
+	}
+	return strings.Join(tocLines, "\n")
+}
+
+// HeadingsCount returns number of headings in current buffer.
+func (m Model) HeadingsCount() int {
+	return len(m.tocHeadings())
 }

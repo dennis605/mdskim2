@@ -1,7 +1,18 @@
  mdskim2 — /tmp/sample-workspace 
-FILES                   #INHALT                      
-▶ ▾ sample-workspace    W──────                      
-(leer)                  i▸ (Datei öffnen)            
+FILES                   [INHALT                      
+▶ ▾ sample-workspace    N──────                      
+(leer)                  O▸ (Datei öffnen)            
+                        -                            
+                        B                            
+                        U                            
+                        F                            
+                        F                            
+                        E                            
+                        R                            
+                        ]                            
+                        #                            
+                        W                            
+                        i                            
                         l                            
                         l                            
                         k                            
@@ -80,6 +91,6 @@ FILES                   #INHALT
                         a                            
                         c                            
                         e                            
-─                            
-… EDIT · R4: Save + Clipboard
+─                              
+… EDIT · R5: MD-Highlight + TOC
 Ctrl+S Save │ Ctrl+Z Undo │ Ctrl+Y Redo │ Ctrl+B Bold │ Ctrl+F Find │ Ctrl+Q Quit

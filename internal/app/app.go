@@ -10,6 +10,7 @@ import (
 
 	"github.com/dennis605/mdskim2/internal/editor"
 	"github.com/dennis605/mdskim2/internal/markdown"
+	"github.com/dennis605/mdskim2/internal/preview"
 	"github.com/dennis605/mdskim2/internal/search"
 	"github.com/dennis605/mdskim2/internal/ui"
 	"github.com/dennis605/mdskim2/internal/workspace"
@@ -38,6 +39,11 @@ type Model struct {
 	searchIdx      int
 	searchActive   bool
 
+	// R7: Preview-Mode
+	previewMode    bool   // wenn true, zeige Preview statt Editor-Buffer
+	previewSplit   bool   // Split-View (Editor + Preview)
+	previewCache   string // cached preview render
+
 	theme   ui.Theme
 	layout  ui.Layout
 	version string
@@ -55,7 +61,7 @@ func New(workspacePath string) Model {
 		width:         120,
 		height:        40,
 		mode:          "EDIT",
-		version:       "R5: MD-Highlight + TOC",
+		version:       "R7: Preview + Split",
 		theme:         ui.Light(),
 		layout:        ui.DefaultLayout(),
 		workspace:     ws,
@@ -113,6 +119,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.buffer.DeleteLine()
 		}
 		return m, nil
+	case tea.KeyCtrlP:
+		// Toggle Preview-Mode
+		if m.buffer != nil {
+			m.previewMode = !m.previewMode
+			if m.previewMode {
+				rendered, err := preview.Render(m.buffer.ToString())
+				if err == nil {
+					m.previewCache = rendered
+				}
+			}
+		}
+		return m, nil
+
 	case tea.KeyCtrlV:
 		if m.buffer != nil {
 			text, err := clipboard.ReadAll()

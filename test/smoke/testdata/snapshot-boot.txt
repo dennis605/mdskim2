@@ -1,64 +1,110 @@
  mdskim2 — /tmp/sample-workspace 
-FILES                   [INHALT                      
-▶ ▾ sample-workspace    N──────                      
-(leer)                  O▸ (Datei öffnen)            
-                        -                            
-                        B                            
-                        U                            
-                        F                            
-                        F                            
-                        E                            
-                        R                            
-                        ]                            
-                        #                            
-                        W                            
+FILES                   [1;36m[[mINHALT                      
+▶ ▾ sample-workspace    [1;36mN[m──────                      
+(leer)                  [1;36mO[m▸ (Datei öffnen)            
+                        [1;36m-[m                            
+                        [1;36mB[m                            
+                        [1;36mU[m                            
+                        [1;36mF[m                            
+                        [1;36mF[m                            
+                        [1;36mE[m                            
+                        [1;36mR[m                            
+                        [1;36m][0m                            
+                        [1;37m#[m                            
+                        [1;37mW[m                            
+                        [1;37mi[m                            
+                        [1;37ml[m                            
+                        [1;37ml[m                            
+                        [1;37mk[m                            
+                        [1;37mo[m                            
+                        [1;37mm[m                            
+                        [1;37mm[m                            
+                        [1;37me[m                            
+                        [1;37mn[m                            
+                        [1;37mb[m                            
+                        [1;37me[m                            
+                        [1;37mi[m                            
+                        [1;37mm[m                            
+                        [1;37md[m                            
+                        [1;37ms[m                            
+                        [1;37mk[m                            
+                        [1;37mi[m                            
+                        [1;37mm[m                            
+                        [1;37m2[0m                            
+                                                     
+                        [33m↑[m                            
+                        [33m↓[m                            
+                        [33mi[m                            
+                        [33mn[m                            
+                        [33mS[m                            
+                        [33mi[m                            
+                        [33md[m                            
+                        [33me[m                            
+                        [33mb[m                            
+                        [33ma[m                            
+                        [33mr[0m                            
+                        ·                            
+                        D                            
+                        a                            
+                        t                            
+                        e                            
                         i                            
-                        l                            
-                        l                            
-                        k                            
+                        w                            
+                        i                            
+                        r                            
+                        d                            
+                        a                            
+                        u                            
+                        t                            
                         o                            
                         m                            
-                        m                            
-                        e                            
-                        n                            
-                        b                            
-                        e                            
-                        i                            
-                        m                            
-                        d                            
-                        s                            
-                        k                            
-                        i                            
-                        m                            
-                        2                            
-                                                     
-                        ↑                            
-                        ↓                            
-                        i                            
-                        n                            
-                        S                            
-                        i                            
-                        d                            
-                        e                            
-                        b                            
                         a                            
-                        r                            
-                        ·                            
-                        E                            
-                        n                            
                         t                            
-                        e                            
-                        r                            
-                        ö                            
-                        f                            
-                        f                            
-                        n                            
-                        e                            
-                        t                            
-                        F                            
                         i                            
+                        s                            
+                        c                            
+                        h                            
+                        g                            
+                        e                            
+                        l                            
+                        a                            
+                        d                            
+                        e                            
+                        n                            
+                        [33mE[m                            
+                        [33mn[m                            
+                        [33mt[m                            
+                        [33me[m                            
+                        [33mr[0m                            
+                        ·                            
+                        T                            
+                        o                            
+                        g                            
+                        g                            
                         l                            
                         e                            
+                        V                            
+                        e                            
+                        r                            
+                        z                            
+                        e                            
+                        i                            
+                        c                            
+                        h                            
+                        n                            
+                        i                            
+                        s                            
+                        /                            
+                        F                            
+                        o                            
+                        r                            
+                        c                            
+                        e                            
+                        -                            
+                        O                            
+                        p                            
+                        e                            
+                        n                            
                                                      
                         W                            
                         o                            
@@ -70,27 +116,27 @@ FILES                   [INHALT
                         c                            
                         e                            
                         :                            
-                        /                            
-                        t                            
-                        m                            
-                        p                            
-                        /                            
-                        s                            
-                        a                            
-                        m                            
-                        p                            
-                        l                            
-                        e                            
-                        -                            
-                        w                            
-                        o                            
-                        r                            
-                        k                            
-                        s                            
-                        p                            
-                        a                            
-                        c                            
-                        e                            
+                        [1m/[m                            
+                        [1mt[m                            
+                        [1mm[m                            
+                        [1mp[m                            
+                        [1m/[m                            
+                        [1ms[m                            
+                        [1ma[m                            
+                        [1mm[m                            
+                        [1mp[m                            
+                        [1ml[m                            
+                        [1me[m                            
+                        [1m-[m                            
+                        [1mw[m                            
+                        [1mo[m                            
+                        [1mr[m                            
+                        [1mk[m                            
+                        [1ms[m                            
+                        [1mp[m                            
+                        [1ma[m                            
+                        [1mc[m                            
+                        [1me[0m                            
 ─                           
 … EDIT · R10: Polish + Stubs
 Ctrl+S Save │ Ctrl+Z Undo │ Ctrl+Y Redo │ Ctrl+B Bold │ Ctrl+T Quick Open │ Ctrl+P Preview │ Ctrl+K Palette │ Ctrl+Q Quit

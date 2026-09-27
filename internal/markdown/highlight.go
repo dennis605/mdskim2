@@ -42,6 +42,8 @@ func Headings(text string) []Heading {
 }
 
 // HighlightLine formatiert eine einzelne Zeile mit ANSI-Codes.
+// HighlightLine rendert eine Markdown-Zeile als ANSI-terminal string mit optionalem Cursor.
+// Wenn line == p.CurrentLine, wird die Zeile mit Background 53 (lila) + Cursor an CurrentCol gehighlightet.
 func HighlightLine(line string, p HighlightParams) string {
 	t := strings.TrimRight(line, " \t\r")
 
@@ -109,4 +111,52 @@ func highlightInline(s string) string {
 	s = linkRe.ReplaceAllString(s, "\x1b[4;36m$1\x1b[0m (\x1b[2;36m$2\x1b[0m)")
 
 	return s
+}
+
+
+// HighlightLines iteriert über alle Zeilen und rendert jede mit CurrentLine-Marker + Cursor.
+func HighlightLines(lines []string, p HighlightParams) []string {
+	out := make([]string, len(lines))
+	for i, line := range lines {
+		out[i] = HighlightLineWith(line, p, i)
+	}
+	return out
+}
+
+// HighlightLineWith wie HighlightLine, aber mit explizitem lineIndex für CurrentLine-Highlighting.
+func HighlightLineWith(line string, p HighlightParams, lineIndex int) string {
+	t := strings.TrimRight(line, " \t\r")
+
+	headingLevel := 0
+	for _, c := range t {
+		if c == '#' {
+			headingLevel++
+			continue
+		}
+		break
+	}
+	var rendered string
+	if headingLevel >= 1 && headingLevel <= 6 && strings.HasPrefix(t, strings.Repeat("#", headingLevel)+" ") {
+		text := strings.TrimSpace(t[headingLevel:])
+		rendered = "\x1b[1;3" + headingColor(headingLevel) + "m" +
+			strings.Repeat("#", headingLevel) + " " +
+			"\x1b[1m" + text + "\x1b[0m"
+	} else if strings.HasPrefix(t, "\x60\x60\x60") {
+		rendered = "\x1b[48;5;240m\x1b[37m" + line + "\x1b[0m"
+	} else if strings.HasPrefix(t, "- ") || strings.HasPrefix(t, "* ") {
+		bullet := t[:2]
+		rest := t[2:]
+		rendered = "\x1b[1;36m" + bullet + "\x1b[0m" + highlightInline(rest)
+	} else if strings.HasPrefix(t, "> ") {
+		rendered = "\x1b[2;3m" + line + "\x1b[0m"
+	} else {
+		rendered = highlightInline(line)
+	}
+
+	// Current-line marker
+	if lineIndex == p.CurrentLine && p.CurrentLine >= 0 {
+		// Marker: ▶ am Anfang
+		rendered = "\x1b[1;35m▶\x1b[0m " + rendered
+	}
+	return rendered
 }

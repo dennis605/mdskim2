@@ -4,6 +4,7 @@ package app
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/atotto/clipboard"
@@ -242,6 +243,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.buffer.MoveCursor(-1, 0)
 		} else if m.cursorIdx > 0 {
 			m.cursorIdx--
+			m.autoOpenAtCursor()
 		}
 		return m, nil
 	case tea.KeyDown:
@@ -249,6 +251,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.buffer.MoveCursor(1, 0)
 		} else if m.cursorIdx < len(m.flatList)-1 {
 			m.cursorIdx++
+			m.autoOpenAtCursor()
 		}
 		return m, nil
 	case tea.KeyLeft:
@@ -390,6 +393,31 @@ func (m Model) selectCurrent() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// autoOpenAtCursor öffnet automatisch die Datei unter dem Cursor im Tree
+// wenn es ein File ist (kein Directory). Skip bei Buffern, die gerade editiert werden.
+func (m Model) autoOpenAtCursor() {
+	if m.cursorIdx < 0 || m.cursorIdx >= len(m.flatList) {
+		return
+	}
+	node := m.flatList[m.cursorIdx]
+	if node.IsDir {
+		return
+	}
+	// Vermeide Reload wenn schon offen (User tippt noch)
+	if m.buffer != nil && m.currentFile == node.Path {
+		return
+	}
+	buf, err := editor.LoadFromFile(node.Path)
+	if err == nil {
+		m.buffer = buf
+		m.currentFile = node.Path
+		m.mode = "EDIT"
+		if m.tabs != nil {
+			m.tabs.Open(node.Path, buf)
+		}
+	}
+}
+
 func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if msg.Type != tea.MouseLeft {
 		return m, nil
@@ -482,18 +510,38 @@ func (m Model) renderSidebar() string {
 
 func (m Model) renderEditor() string {
 	if m.buffer == nil {
-		return "[NO-BUFFER] # Willkommen bei mdskim2\n\n" +
-			"↑↓ in Sidebar · Enter öffnet File\n\n" +
-			"Workspace: " + m.workspacePath
+		return "\x1b[1;36m[NO-BUFFER]\x1b[0m \x1b[1;37m# Willkommen bei mdskim2\x1b[0m\n\n" +
+			"\x1b[33m↑↓ in Sidebar\x1b[0m · Datei wird automatisch geladen\n" +
+			"\x1b[33mEnter\x1b[0m · Toggle Verzeichnis / Force-Open\n\n" +
+			"Workspace: \x1b[1m" + m.workspacePath + "\x1b[0m"
 	}
-	var highlighted []string
+
+	// Header: aktive Datei + Mode deutlich
+	headerLine := "\x1b[48;5;63m\x1b[1;37m [EDIT] " + trimPath(m.currentFile, 50) + " \x1b[0m"
+
+	// Cursor position
+	totalLines := len(m.buffer.Lines)
+	totalCols := 0
+	if m.buffer.CursorRow >= 0 && m.buffer.CursorRow < len(m.buffer.Lines) {
+		totalCols = utf8.RuneCountInString(m.buffer.Lines[m.buffer.CursorRow])
+	}
+	cursorPos := fmt.Sprintf("\x1b[1;33mLn %d/%d · Col %d/%d\x1b[0m",
+		m.buffer.CursorRow+1, totalLines,
+		m.buffer.CursorCol+1, totalCols)
+
+	modFlag := "  "
+	if m.buffer.Modified {
+		modFlag = "\x1b[1;31m ●\x1b[0m"
+	}
+
+	// Body with cursor on current line
 	p := markdown.HighlightParams{CurrentLine: m.buffer.CursorRow}
-	for _, line := range m.buffer.Lines {
-		highlighted = append(highlighted, markdown.HighlightLine(line, p))
-	}
-	heading := "[BUFFER-OPEN] # " + trimPath(m.currentFile, 40)
-	highlightedHeading := markdown.HighlightLine(heading, p)
-	return strings.Join([]string{highlightedHeading, "", strings.Join(highlighted, "\n")}, "\n")
+	body := strings.Join(markdown.HighlightLines(m.buffer.Lines, p), "\n")
+
+	// Trailing status row inside editor
+	editorStatus := "\n" + cursorPos + modFlag
+
+	return headerLine + "\n" + body + editorStatus
 }
 
 func (m Model) tocHeadings() []markdown.Heading {

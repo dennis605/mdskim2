@@ -94,3 +94,20 @@ func min(a, b int) int {
 	}
 	return b
 }
+
+
+func TestHighlightLinesCurrentLineMarker(t *testing.T) {
+	lines := []string{"# Hello", "World", "**Bold**"}
+	out := HighlightLines(lines, HighlightParams{CurrentLine: 1})
+	if len(out) != 3 {
+		t.Fatalf("erwartet 3 Zeilen, got %d", len(out))
+	}
+	// Line 1 (idx 0) should NOT have ▶ marker
+	if strings.Contains(out[0], "▶") {
+		t.Errorf("Line 0 sollte keinen ▶ Marker haben, got: %s", out[0])
+	}
+	// Line 2 (idx 1) should have ▶ marker
+	if !strings.Contains(out[1], "▶") {
+		t.Errorf("Line 1 sollte ▶ Marker haben, got: %s", out[1])
+	}
+}

@@ -1,7 +1,4 @@
 // Package app implementiert die mdskim2-Anwendung als Bubble-Tea-Model.
-//
-// Architektur: Elm-Pattern. Update() ist ein Switch auf tea.Msg, View()
-// rendert via internal/ui einen 3-Pane-Layout-Snapshot.
 package app
 
 import (
@@ -11,49 +8,60 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/dennis605/mdskim2/internal/ui"
+	"github.com/dennis605/mdskim2/internal/workspace"
 )
 
 // Model ist der zentrale Anwendungs-State.
 type Model struct {
 	// Input
-	workspace string
-	width     int
-	height    int
-	quitting  bool
+	workspacePath string
+	width         int
+	height        int
+	quitting      bool
 
-	// Status-Anzeige
+	// Workspace + Tree
+	workspace  *workspace.Workspace
+	treeRender *workspace.TreeRenderer
+	cursorIdx  int // Index in der Tree-FlatList
+	flatList   []*workspace.FileNode
+
+	// Editor (R3 - Stub für R2)
 	currentFile string
-	mode        string
 
-	// Theme
-	theme ui.Theme
-
-	// Layout
-	layout ui.Layout
-
-	// Sprint-Identifikation (für Status-Bar)
+	// Status
+	mode    string
+	theme   ui.Theme
+	layout  ui.Layout
 	version string
 }
 
 // New erzeugt einen frischen Anwendungs-Model.
-func New(workspace string) Model {
+func New(workspacePath string) Model {
+	ws, _ := workspace.Load(workspacePath)
+	r := workspace.NewTreeRenderer()
+	flat := ws.FlatList(r.CollapsedDirs)
+
 	return Model{
-		workspace: workspace,
-		width:     120,
-		height:    40,
-		mode:      "BOOT",
-		version:   "R1: Bootstrap",
-		theme:     ui.Light(),
-		layout:    ui.DefaultLayout(),
+		workspacePath: workspacePath,
+		width:         120,
+		height:        40,
+		mode:          "EDIT",
+		version:       "R2: Workspace + Tree",
+		theme:         ui.Light(),
+		layout:        ui.DefaultLayout(),
+		workspace:     ws,
+		treeRender:    r,
+		flatList:      flat,
+		cursorIdx:     0,
 	}
 }
 
-// Init ist beim Bubble-Tea-Start erforderlich (siehe tea.Model interface).
+// Init ist beim Bubble-Tea-Start erforderlich.
 func (m Model) Init() tea.Cmd {
 	return nil
 }
 
-// Update verarbeitet eingehende Messages und gibt neuen State zurück.
+// Update verarbeitet eingehende Messages.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -66,24 +74,93 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 
 	case tea.MouseMsg:
-		return m, nil
-
-	default:
-		return m, nil
+		return m.handleMouse(msg)
 	}
+	return m, nil
 }
 
-// handleKey verarbeitet Tastatur-Events gemäß User-Spec-Shortcuts.
+// handleKey verarbeitet Tastatur-Events.
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Ctrl+Q: Beenden (Spec-Hard-Shortcut, in R1 schon implementiert)
-	if msg.Type == tea.KeyCtrlQ {
+	switch msg.Type {
+	case tea.KeyCtrlQ:
 		m.quitting = true
 		return m, tea.Quit
+
+	case tea.KeyEsc:
+		return m, nil
+
+	case tea.KeyUp:
+		if m.cursorIdx > 0 {
+			m.cursorIdx--
+		}
+		return m, nil
+
+	case tea.KeyDown:
+		if m.cursorIdx < len(m.flatList)-1 {
+			m.cursorIdx++
+		}
+		return m, nil
+
+	case tea.KeyEnter:
+		return m.selectCurrent()
 	}
 
-	// Esc abfangen, falls nötig
-	if msg.Type == tea.KeyEsc {
+	switch msg.String() {
+	case "backspace":
+		// Parent-Verzeichnis: wenn cursor auf Sub-Dir, klappe zu
+		if m.cursorIdx >= 0 && m.cursorIdx < len(m.flatList) {
+			node := m.flatList[m.cursorIdx]
+			if node.IsDir {
+				m.treeRender.ToggleDir(node.Path)
+				m.flatList = m.workspace.FlatList(m.treeRender.CollapsedDirs)
+				if m.cursorIdx >= len(m.flatList) {
+					m.cursorIdx = len(m.flatList) - 1
+				}
+			}
+		}
 		return m, nil
+	}
+
+	return m, nil
+}
+
+// selectCurrent öffnet das selektierte Item (Enter / Click).
+func (m Model) selectCurrent() (tea.Model, tea.Cmd) {
+	if m.cursorIdx < 0 || m.cursorIdx >= len(m.flatList) {
+		return m, nil
+	}
+	node := m.flatList[m.cursorIdx]
+	if node.IsDir {
+		m.treeRender.ToggleDir(node.Path)
+		m.flatList = m.workspace.FlatList(m.treeRender.CollapsedDirs)
+		if m.cursorIdx >= len(m.flatList) {
+			m.cursorIdx = len(m.flatList) - 1
+		}
+	} else {
+		// Datei: in Editor laden (R3 füllt Buffer, R2 zeigt nur Pfad)
+		m.currentFile = node.Path
+		m.mode = "EDIT"
+	}
+	return m, nil
+}
+
+// handleMouse verarbeitet Maus-Events.
+func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	if msg.Type != tea.MouseLeft {
+		return m, nil
+	}
+
+	// Sidebar-Spalte (1-basiert: Spalte 0 bis SidebarWidth-1)
+	if msg.X >= 1 && msg.X < m.layout.SidebarWidth-1 {
+		// Konvertiere Y in Tree-Index
+		idx := msg.Y - 2 // 1 = Header, 1 = Sidebar-Label, danach Tree
+		if idx < 0 {
+			idx = 0
+		}
+		if idx >= 0 && idx < len(m.flatList) {
+			m.cursorIdx = idx
+			return m.selectCurrent()
+		}
 	}
 
 	return m, nil
@@ -96,20 +173,22 @@ func (m Model) View() string {
 	}
 
 	if m.width == 0 || m.height == 0 {
-		// Bubble Tea hat uns noch keine Window-Size geschickt → Mini-View
-		return fmt.Sprintf("mdskim2 — Workspace: %s — R1 Bootstrap\n", m.workspace)
+		return fmt.Sprintf("mdskim2 — Workspace: %s — R2 Workspace+Tree\n", m.workspacePath)
 	}
 
-	header := m.layout.Header(m.workspace, m.theme)
+	header := m.layout.Header(m.workspacePath, m.theme)
 
-	// 3 vertikale Panes nebeneinander
-	sidebar := m.layout.Sidebar(sidebarContent(), m.theme, false)
-	editor := m.layout.Editor(editorContent(m.workspace, m.version), m.theme, true)
-	toc := m.layout.TOC(tocContent(), m.theme, false)
+	sidebarContent := m.renderSidebar()
+	editorContent := m.renderEditor()
+	tocContent := m.renderTOC()
+
+	sidebar := m.layout.Sidebar(sidebarContent, m.theme, true)
+	editor := m.layout.Editor(editorContent, m.theme, false)
+	toc := m.layout.TOC(tocContent, m.theme, false)
 	body := m.layout.Compose(sidebar, editor, toc)
 
 	statusInfo := ui.StatusInfo{
-		Workspace: m.workspace,
+		Workspace: m.workspacePath,
 		File:      m.currentFile,
 		Encoding:  "UTF-8",
 		Mode:      m.mode,
@@ -121,20 +200,59 @@ func (m Model) View() string {
 	return strings.Join([]string{header, body, status, footer}, "\n")
 }
 
-// sidebarContent rendert den Beispiel-Tree (R2 ersetzt dies).
-func sidebarContent() string {
-	return "FILES\n\n▾ Test Engineering\n  • Tests…\n  • Testpl…\n  • Testar…\n  • Testmet…\n\nTAGS\n\n#obsidian\n#markdown"
+// renderSidebar rendert den FileTree mit Selection.
+func (m Model) renderSidebar() string {
+	if m.workspace == nil {
+		return "FILES\n(kein Workspace)"
+	}
+
+	var lines []string
+	lines = append(lines, "FILES")
+
+	for i, node := range m.flatList {
+		line := m.treeRender.FormatNode(node)
+		if i == m.cursorIdx {
+			line = "▶ " + strings.TrimPrefix(line, "")
+		}
+		lines = append(lines, line)
+	}
+
+	if m.workspace.TotalFiles() == 0 {
+		lines = append(lines, "(leer)")
+	}
+
+	return strings.Join(lines, "\n")
 }
 
-// editorContent rendert den Editor (R3-R5 füllen Buffer + Markdown-Highlight).
-func editorContent(workspace, version string) string {
-	heading := "# Welcome to mdskim2"
-	para := "Modern Markdown Workspace for the Terminal. " +
-		"Obsidian/VS Code feel, no vim modes, single binary."
-	return heading + "\n\n" + para + "\n\nSprint " + version + "\n\nWorkspace: " + workspace
+// renderEditor rendert den Editor-Inhalt.
+func (m Model) renderEditor() string {
+	if m.currentFile == "" {
+		heading := "# Welcome to mdskim2"
+		para := "Modern Markdown Workspace for the Terminal.\n" +
+			"Obsidian/VS Code feel, no vim modes, single binary.\n\n" +
+			"Sprint " + m.version + "\n\n" +
+			"Workspace: " + m.workspacePath + "\n\n" +
+			"↑↓ navigieren · Enter öffnet · Backspace klappt zu"
+		return heading + "\n\n" + para
+	}
+
+	heading := "# " + trimPath(m.currentFile, 40)
+	body := "(Editor-Buffer kommt in R3)\n\nAktuelle Datei:\n" + m.currentFile
+	return heading + "\n\n" + body
 }
 
-// tocContent rendert das TOC (R5 füllt es live mit Headings).
-func tocContent() string {
-	return "INHALT\n──────\n▸ Welcome\n▸ Sprint R1"
+// renderTOC rendert das Inhaltsverzeichnis (R5 füllt es live).
+func (m Model) renderTOC() string {
+	if m.currentFile == "" {
+		return "INHALT\n──────\n▸ (Datei öffnen)"
+	}
+	return "INHALT\n──────\n(TOC kommt in R5)"
+}
+
+// trimPath kürzt einen langen Pfad für die Anzeige.
+func trimPath(path string, max int) string {
+	if len(path) <= max {
+		return path
+	}
+	return "…" + path[len(path)-max+1:]
 }

@@ -1,16 +1,16 @@
  mdskim2 — /tmp/sample-workspace 
 FILES                   #INHALT                      
-                        W──────                      
-▾ Test Engineering      e▸ Welcome                   
-  • Tests…              l▸ Sprint R1                 
-  • Testpl…             c                            
-  • Testar…             o                            
-  • Testmet…            m                            
-                        e                            
-TAGS                    t                            
+▶ ▾ sample-workspace    W──────                      
+(leer)                  e▸ (Datei öffnen)            
+                        l                            
+                        c                            
                         o                            
-#obsidian               m                            
-#markdown               d                            
+                        m                            
+                        e                            
+                        t                            
+                        o                            
+                        m                            
+                        d                            
                         s                            
                         k                            
                         i                            
@@ -107,17 +107,22 @@ TAGS                    t
                         n                            
                         t                            
                         R                            
-                        1                            
+                        2                            
                         :                            
-                        B                            
+                        W                            
                         o                            
-                        o                            
-                        t                            
-                        s                            
-                        t                            
                         r                            
-                        a                            
+                        k                            
+                        s                            
                         p                            
+                        a                            
+                        c                            
+                        e                            
+                        +                            
+                        T                            
+                        r                            
+                        e                            
+                        e                            
                                                      
                         W                            
                         o                            
@@ -150,6 +155,49 @@ TAGS                    t
                         a                            
                         c                            
                         e                            
-─                     
-… BOOT · R1: Bootstrap
+                                                     
+                        ↑                            
+                        ↓                            
+                        n                            
+                        a                            
+                        v                            
+                        i                            
+                        g                            
+                        i                            
+                        e                            
+                        r                            
+                        e                            
+                        n                            
+                        ·                            
+                        E                            
+                        n                            
+                        t                            
+                        e                            
+                        r                            
+                        ö                            
+                        f                            
+                        f                            
+                        n                            
+                        e                            
+                        t                            
+                        ·                            
+                        B                            
+                        a                            
+                        c                            
+                        k                            
+                        s                            
+                        p                            
+                        a                            
+                        c                            
+                        e                            
+                        k                            
+                        l                            
+                        a                            
+                        p                            
+                        p                            
+                        t                            
+                        z                            
+                        u                            
+─                            
+… EDIT · R2: Workspace + Tree
 Ctrl+S Save │ Ctrl+O Open │ Ctrl+P Open │ Ctrl+F Find │ Ctrl+Shift+P Commands │ Ctrl+Q Quit

@@ -12,11 +12,11 @@
 
 **Start command**: `cd /Users/dennisschonig/projects/mdskim2 && go run ./cmd/mdskim2` (oder mit Workspace-Pfad)
 
-**Last action**: Sprint R10 — Final 7-Gate-Verifikation aller 16 MVP-Items + 8 Obsidian-Stubs L1-L8. Alle Gates grün, alle Tests grün, alle 16 MVP-Items abgedeckt, 12 Architecture-Components gebaut.
+**Last action**: Sprint U6 — UI-Revamp (Python-mdskim-Look). Keybinding-Toolbar oben, TabbedContent rechts (Preview | TOC | Backlinks) statt immer-TOC. Neues `internal/backlinks` Package mit 5 Tests. 4 U6-Tests grün.
 
-**Next step**: Ausliefern oder nächste Phase planen. Optionale post-MVP-Features: Workspace-Grep-UI, Tab-Bar-Visualisierung, Fuzzy-Search für Quick Open, Regex-Search, Sidebar-Resize, fsnotify Auto-Reload.
+**Next step**: Optionale UI-Polish-Sprints U7+: Sidebar-Resize via Ctrl+Left/Right, File-Watcher (fsnotify), Markdown-Lint-Markers, Splitter-Drag. Aktueller Look entspricht jetzt dem Python-mdskim.
 
-**Updated**: 2026-09-27
+**Updated**: 2026-09-27 23:36 UTC+02:00
 
 **Confidence**: high
 

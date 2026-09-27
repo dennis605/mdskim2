@@ -14,7 +14,9 @@ func TestBootViewContainsExpectedMarkers(t *testing.T) {
 	mustContain := []string{
 		"mdskim2",
 		"FILES",
-		"INHALT",
+		"Preview",
+		"TOC",
+		"Backlinks",
 		"Ctrl+S",
 		"Ctrl+Q",
 		"/tmp/test-workspace",

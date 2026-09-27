@@ -3,6 +3,7 @@ package app
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"unicode/utf8"
 	"time"
@@ -10,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/atotto/clipboard"
 
+	"github.com/dennis605/mdskim2/internal/backlinks"
 	"github.com/dennis605/mdskim2/internal/editor"
 	"github.com/dennis605/mdskim2/internal/grep"
 	"github.com/dennis605/mdskim2/internal/markdown"
@@ -87,6 +89,13 @@ type Model struct {
 	recent       *recent.List
 	autoSaveTick int
 	autoSavedAt  string // Zeitstempel für Anzeige
+
+	// U6: Right-Pane-Tab: 0=Preview | 1=TOC | 2=Backlinks
+	rightTab int
+
+	// U6: Backlinks cache
+	backlinksCache []backlinks.Entry
+	backlinksFor   string
 }
 
 func New(workspacePath string) Model {
@@ -111,6 +120,7 @@ func New(workspacePath string) Model {
 		tabs:          tabs.NewManager(),
 		palette:       palette.NewRegistry(),
 	}
+	m.layout.Compute(m.width, m.height)
 
 	// Register default commands
 	m.palette.Register(palette.Command{Name: "save", Description: "Save current file", Keywords: []string{"write", "store", "ctrl+s"}})
@@ -510,7 +520,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m = m.setFocus(prev)
 			return m, nil
 		}
-		// Alt+1..4: direct jump
+		// Alt+1..4: direct pane jump
 		key := msg.String()
 		if strings.HasPrefix(key, "alt+") && len(key) == 5 {
 			digit := key[len(key)-1]
@@ -520,6 +530,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				if idx < len(panes) {
 					m = m.setFocus(panes[idx])
 				}
+				return m, nil
+			}
+			// U6: Alt+5/6/7 = right-pane tab switch (Preview | TOC | Backlinks)
+			if digit >= '5' && digit <= '7' {
+				m.rightTab = int(digit - '5')
+				m.focus = "toc"
 				return m, nil
 			}
 		}
@@ -686,8 +702,18 @@ func (m Model) View() string {
 		editorContent = barText + "\n" + editorContent
 	}
 	editor := m.layout.Editor(editorContent, m.theme, m.focus == "editor" || m.focus == "preview")
-	toc := m.layout.TOC(m.renderTOC(), m.theme, m.focus == "toc")
-	body := m.layout.Compose(sidebar, editor, toc)
+
+	// Right pane tabs: Preview | TOC | Backlinks (U6 — Python-mdskim look)
+	tabLabels := []string{"Preview", "TOC", "Backlinks"}
+	tabContents := []string{
+		m.renderPreviewTab(),
+		m.renderTOC(),
+		m.renderBacklinksTab(),
+	}
+	right := m.layout.RightPane(tabLabels, m.rightTab, tabContents, m.theme,
+		m.focus == "toc" || m.focus == "preview")
+
+	body := m.layout.Compose(sidebar, editor, right)
 
 	mode := m.mode
 	if m.saveError != "" {
@@ -709,7 +735,10 @@ func (m Model) View() string {
 	status := m.layout.RenderStatus(statusInfo, m.theme)
 	footer := m.layout.RenderFooter(ui.DefaultShortcuts(), m.theme)
 
-	return strings.Join([]string{header, body, status, footer}, "\n")
+	// U6: Toolbar (1-zeilige Shortcut-Leiste unter dem Header)
+	toolbar := m.layout.Toolbar("mdskim", m.toolbarShortcuts(), m.theme)
+
+	return strings.Join([]string{header, toolbar, body, status, footer}, "\n")
 }
 
 func (m Model) renderSidebar() string {
@@ -965,6 +994,69 @@ func (m Model) tocHeadings() []markdown.Heading {
 	return markdown.Headings(m.buffer.ToString())
 }
 
+func (m Model) renderPreviewTab() string {
+	if m.buffer == nil {
+		return "(keine Datei geöffnet)"
+	}
+	// Render markdown with glamour
+	rendered, err := preview.Render(m.buffer.ToString())
+	if err != nil {
+		return fmt.Sprintf("(Render-Fehler: %v)", err)
+	}
+	return rendered
+}
+
+func (m Model) renderBacklinksTab() string {
+	if m.buffer == nil || m.buffer.Path == "" {
+		return "(keine Datei geöffnet)"
+	}
+	m.refreshBacklinks()
+	if len(m.backlinksCache) == 0 {
+		return "Keine Backlinks für diese Datei.\nTipp: erstelle [[Wiki-Links]] in anderen Dateien."
+	}
+	var lines []string
+	lines = append(lines, fmt.Sprintf("%d Backlink(s):", len(m.backlinksCache)))
+	for _, e := range m.backlinksCache {
+		label := e.LinkTarget
+		if e.LinkAlias != "" {
+			label = e.LinkAlias + " → " + label
+		}
+		base := filepath.Base(e.SourceFile)
+		lines = append(lines, fmt.Sprintf("  • %s:%d  %s", base, e.SourceLine, label))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) refreshBacklinks() {
+	if m.buffer == nil || m.buffer.Path == "" {
+		return
+	}
+	if m.backlinksFor == m.buffer.Path {
+		return
+	}
+	ws := m.workspacePath
+	if m.workspace != nil && m.workspace.RootPath != "" {
+		ws = m.workspace.RootPath
+	}
+	entries, err := backlinks.Collect(ws, m.buffer.Path)
+	if err == nil {
+		m.backlinksCache = entries
+		m.backlinksFor = m.buffer.Path
+	}
+}
+
+func (m Model) toolbarShortcuts() []ui.Shortcut {
+	return []ui.Shortcut{
+		{Key: "Ctrl+O", Description: "Open"},
+		{Key: "Ctrl+S", Description: "Save"},
+		{Key: "Ctrl+P", Description: "Preview"},
+		{Key: "Ctrl+K", Description: "Palette"},
+		{Key: "Alt+5/6/7", Description: "Tabs"},
+		{Key: "F6", Description: "Focus"},
+		{Key: "Ctrl+Q", Description: "Quit"},
+	}
+}
+
 func (m Model) renderTOC() string {
 	hs := m.tocHeadings()
 	if len(hs) == 0 {
@@ -1204,4 +1296,35 @@ func (m Model) setFocus(f string) Model {
 		m.focus = "tree"
 	}
 	return m
+}
+
+
+// RightTab returns the current right-pane tab index.
+func (m Model) RightTab() int {
+	return m.rightTab
+}
+
+// SetRightTab sets the right-pane tab index (0=Preview, 1=TOC, 2=Backlinks).
+func (m *Model) SetRightTab(idx int) {
+	if idx < 0 {
+		idx = 0
+	}
+	if idx > 2 {
+		idx = 2
+	}
+	m.rightTab = idx
+	m.focus = "toc"
+}
+
+// LoadFileForTest loads a file into the buffer (used by tests).
+func (m *Model) LoadFileForTest(path string) {
+	buf, err := editor.LoadFromFile(path)
+	if err != nil {
+		return
+	}
+	m.buffer = buf
+	m.currentFile = path
+	m.recent.Add(path)
+	m.backlinksFor = ""
+	m.refreshBacklinks()
 }

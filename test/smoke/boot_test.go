@@ -24,8 +24,14 @@ func TestBootView(t *testing.T) {
 	if !strings.Contains(snapshot, "FILES") {
 		t.Errorf("erwartet Sidebar-Label 'FILES' in View")
 	}
-	if !strings.Contains(snapshot, "INHALT") {
-		t.Errorf("erwartet TOC-Label 'INHALT' in View")
+	if !strings.Contains(snapshot, "TOC") {
+		t.Errorf("erwartet Right-Pane Tab 'TOC' in View")
+	}
+	if !strings.Contains(snapshot, "Preview") {
+		t.Errorf("erwartet Right-Pane Tab 'Preview' in View")
+	}
+	if !strings.Contains(snapshot, "Backlinks") {
+		t.Errorf("erwartet Right-Pane Tab 'Backlinks' in View")
 	}
 	if !strings.Contains(snapshot, "Ctrl+S") {
 		t.Errorf("erwartet Shortcut-Hint 'Ctrl+S' in Footer")

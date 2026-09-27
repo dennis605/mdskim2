@@ -258,6 +258,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.lineWrap = !m.lineWrap
 		return m, nil
 
+	case tea.KeyF6:
+		// Cycle pane focus forward
+		next := m.cycleFocus(1)
+		m = m.setFocus(next)
+		return m, nil
 	case tea.KeyCtrlR:
 		if msg.String() == "ctrl+shift+r" {
 			// Read-Only Toggle (Ctrl+Shift+R)
@@ -352,8 +357,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.goToLineQuery = ""
 			return m, nil
 		}
-		// Esc zurück zum Tree
-		m.focus = "tree"
+		// Esc: cycle focus back one pane (replaces "always go to tree")
+		prev := m.cycleFocus(-1)
+		m = m.setFocus(prev)
 		return m, nil
 	case tea.KeyUp:
 		if m.focus == "editor" && m.buffer != nil {
@@ -497,6 +503,26 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.buffer.DeleteCharForward()
 		}
 		return m, nil
+	default:
+		// Shift+F6: cycle focus backward
+		if msg.String() == "shift+f6" {
+			prev := m.cycleFocus(-1)
+			m = m.setFocus(prev)
+			return m, nil
+		}
+		// Alt+1..4: direct jump
+		key := msg.String()
+		if strings.HasPrefix(key, "alt+") && len(key) == 5 {
+			digit := key[len(key)-1]
+			if digit >= '1' && digit <= '4' {
+				panes := m.visiblePanes()
+				idx := int(digit - '1')
+				if idx < len(panes) {
+					m = m.setFocus(panes[idx])
+				}
+				return m, nil
+			}
+		}
 	}
 	if msg.Type == tea.KeyRunes {
 		if m.readOnly && m.buffer != nil {
@@ -641,7 +667,7 @@ func (m Model) View() string {
 	}
 
 	header := m.layout.Header(m.workspacePath, m.theme)
-	sidebar := m.layout.Sidebar(m.renderSidebar(), m.theme, true)
+	sidebar := m.layout.Sidebar(m.renderSidebar(), m.theme, m.focus == "tree")
 	editorContent := m.renderEditor()
 	if m.paletteActive && m.palette != nil {
 		matches := m.palette.Search(m.paletteQuery)
@@ -659,8 +685,8 @@ func (m Model) View() string {
 		barText := fmt.Sprintf("SUCHE: %s [Enter: Jump, Esc: Close, Ctrl+H: Replace, %d Treffer]", m.searchQuery, count)
 		editorContent = barText + "\n" + editorContent
 	}
-	editor := m.layout.Editor(editorContent, m.theme, m.buffer != nil)
-	toc := m.layout.TOC(m.renderTOC(), m.theme, len(m.tocHeadings()) > 0)
+	editor := m.layout.Editor(editorContent, m.theme, m.focus == "editor" || m.focus == "preview")
+	toc := m.layout.TOC(m.renderTOC(), m.theme, m.focus == "toc")
 	body := m.layout.Compose(sidebar, editor, toc)
 
 	mode := m.mode
@@ -1131,4 +1157,51 @@ func renderWhitespace(s string) string {
 		}
 	}
 	return string(out)
+}
+
+// visiblePanes returns the ordered list of currently visible pane names.
+func (m Model) visiblePanes() []string {
+	out := []string{"tree"}
+	if m.buffer != nil {
+		out = append(out, "editor")
+	}
+	if m.buffer != nil {
+		out = append(out, "toc")
+	}
+	return out
+}
+
+// cycleFocus advances focus by direction (1 forward, -1 backward) through visible panes.
+func (m Model) cycleFocus(direction int) string {
+	panes := m.visiblePanes()
+	if len(panes) == 0 {
+		return "tree"
+	}
+	cur := 0
+	for i, p := range panes {
+		if p == m.focus {
+			cur = i
+			break
+		}
+	}
+	next := cur + direction
+	if next < 0 {
+		next = len(panes) - 1
+	}
+	if next >= len(panes) {
+		next = 0
+	}
+	return panes[next]
+}
+
+// setFocus updates m.focus and returns updated Model. Out-of-focus values map to default.
+func (m Model) setFocus(f string) Model {
+	switch f {
+	case "tree", "editor", "preview", "toc":
+		m.focus = f
+	}
+	if m.focus == "preview" && m.buffer == nil {
+		m.focus = "tree"
+	}
+	return m
 }

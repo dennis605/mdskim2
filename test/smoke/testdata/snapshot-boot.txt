@@ -173,4 +173,4 @@
                         [1me[0m                            
 ─                           
 … EDIT · R10: Polish + Stubs
-Ctrl+S Save │ Ctrl+Z Undo │ Ctrl+Y Redo │ Ctrl+B Bold │ Ctrl+T Quick Open │ Ctrl+P Preview │ Ctrl+K Palette │ Ctrl+Q Quit
+Ctrl+S Save │ Ctrl+Z Undo │ Ctrl+Y Redo │ Ctrl+B Bold │ Ctrl+T Quick Open │ Ctrl+P Preview │ Ctrl+K Palette │ Ctrl+Q Quit │ F6 Focus next pane │ Alt+1..4 Jump to pane

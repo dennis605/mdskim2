@@ -66,6 +66,9 @@ type Model struct {
 	workspaceHits  []grep.Hit
 
 	saveError string
+
+	// U2 Focus-Modell: "tree" oder "editor"
+	focus string
 }
 
 func New(workspacePath string) Model {
@@ -78,6 +81,7 @@ func New(workspacePath string) Model {
 		width:         120,
 		height:        40,
 		mode:          "EDIT",
+		focus:         "tree",
 		version:       "R10: Polish + Stubs",
 		theme:         ui.Light(),
 		layout:        ui.DefaultLayout(),
@@ -227,8 +231,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.buffer.MoveCursor(0, -1)
 		}
 		return m, nil
-	case tea.KeyEsc:
-		// Esc schließt Modal
+		case tea.KeyEsc:
+		// Esc priorisiert: Modals > Tree > Quit
 		if m.searchActive {
 			m.searchActive = false
 			return m, nil
@@ -237,48 +241,83 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.quickOpenMode = false
 			return m, nil
 		}
+		if m.paletteActive {
+			m.paletteActive = false
+			return m, nil
+		}
+		// Esc zurück zum Tree
+		m.focus = "tree"
 		return m, nil
 	case tea.KeyUp:
-		if m.buffer != nil {
+		if m.focus == "editor" && m.buffer != nil {
 			m.buffer.MoveCursor(-1, 0)
-		} else if m.cursorIdx > 0 {
-			m.cursorIdx--
-			m.autoOpenAtCursor()
+		} else {
+			// Tree-Navigation: Pfeiltasten bleiben im Tree
+			m.focus = "tree"
+			if m.cursorIdx > 0 {
+				m.cursorIdx--
+				m.autoOpenAtCursor()
+			}
 		}
 		return m, nil
 	case tea.KeyDown:
-		if m.buffer != nil {
+		if m.focus == "editor" && m.buffer != nil {
 			m.buffer.MoveCursor(1, 0)
-		} else if m.cursorIdx < len(m.flatList)-1 {
-			m.cursorIdx++
-			m.autoOpenAtCursor()
+		} else {
+			// Tree-Navigation
+			m.focus = "tree"
+			if m.cursorIdx < len(m.flatList)-1 {
+				m.cursorIdx++
+				m.autoOpenAtCursor()
+			}
 		}
 		return m, nil
 	case tea.KeyLeft:
-		if m.buffer != nil {
+		if m.focus == "editor" && m.buffer != nil {
 			m.buffer.MoveCursor(0, -1)
+		} else if m.cursorIdx >= 0 && m.cursorIdx < len(m.flatList) {
+			node := m.flatList[m.cursorIdx]
+			if node.IsDir {
+				// Im Tree: Links auf collapsed dir → expand, expanded → focus tree
+				m.treeRender.ToggleDir(node.Path)
+				m.flatList = m.workspace.FlatList(m.treeRender.CollapsedDirs)
+			}
 		}
 		return m, nil
 	case tea.KeyRight:
-		if m.quickOpenMode && len(m.searchResults) > 0 && m.tabs != nil {
-			// Quick Open: Enter selects active
-			return m, nil
-		}
-		if m.buffer != nil {
+		if m.focus == "editor" && m.buffer != nil {
 			m.buffer.MoveCursor(0, 1)
+		} else if m.cursorIdx >= 0 && m.cursorIdx < len(m.flatList) {
+			node := m.flatList[m.cursorIdx]
+			if node.IsDir {
+				// Im Tree: Rechts auf collapsed dir → expand
+				m.treeRender.ToggleDir(node.Path)
+				m.flatList = m.workspace.FlatList(m.treeRender.CollapsedDirs)
+			}
 		}
 		return m, nil
 	case tea.KeyHome:
-		if m.buffer != nil {
+		if m.focus == "editor" && m.buffer != nil {
 			m.buffer.Home()
+		} else {
+			m.focus = "tree"
+			m.cursorIdx = 0
+			m.autoOpenAtCursor()
 		}
 		return m, nil
 	case tea.KeyEnd:
-		if m.buffer != nil {
+		if m.focus == "editor" && m.buffer != nil {
 			m.buffer.End()
+		} else {
+			m.focus = "tree"
+			if len(m.flatList) > 0 {
+				m.cursorIdx = len(m.flatList) - 1
+				m.autoOpenAtCursor()
+			}
 		}
 		return m, nil
 	case tea.KeyEnter:
+		// Search-Modal: Enter zyklisch durch Matches
 		if m.searchActive && len(m.searchResults) > 0 {
 			m.searchIdx++
 			if m.searchIdx >= len(m.searchResults) {
@@ -288,13 +327,28 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.buffer != nil {
 				m.buffer.CursorRow = match.Line
 				m.buffer.CursorCol = match.Col
+				m.focus = "editor"
 			}
 			return m, nil
 		}
-		if m.buffer != nil {
+		// Im Tree: Enter toggelt directory ODER wechselt in Editor
+		if m.focus == "tree" && m.buffer != nil {
+			node := m.flatList[m.cursorIdx]
+			if node.IsDir {
+				m.treeRender.ToggleDir(node.Path)
+				m.flatList = m.workspace.FlatList(m.treeRender.CollapsedDirs)
+				return m, nil
+			}
+			// File: Wechsel in Editor-Focus
+			m.focus = "editor"
+			return m, nil
+		}
+		// Im Editor ohne Modals: Enter = neue Zeile
+		if m.buffer != nil && m.focus == "editor" {
 			m.buffer.InsertNewLine()
 			return m, nil
 		}
+		// Sonst: selectCurrent (legacy fallback)
 		return m.selectCurrent()
 	case tea.KeyBackspace:
 		if m.searchActive && m.searchQuery != "" {
@@ -306,18 +360,17 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
-		if m.buffer != nil {
+		if m.buffer != nil && m.focus == "editor" {
 			m.buffer.DeleteChar()
 			return m, nil
 		}
-		return m.toggleCurrentDir()
+		return m, nil
 	case tea.KeyDelete:
-		if m.buffer != nil {
+		if m.buffer != nil && m.focus == "editor" {
 			m.buffer.DeleteCharForward()
 		}
 		return m, nil
 	}
-
 	if msg.Type == tea.KeyRunes {
 		// Wenn Search aktiv: Query aufbauen
 		if m.searchActive && m.buffer != nil {
@@ -493,19 +546,31 @@ func (m Model) renderSidebar() string {
 	if m.workspace == nil {
 		return "FILES\n(kein Workspace)"
 	}
+	headerMark := "\x1b[2m FILES \x1b[0m"
+	if m.focus == "tree" {
+		headerMark = "\x1b[48;5;63m\x1b[1;37m FILES \x1b[0m"
+	}
 	var lines []string
-	lines = append(lines, "FILES")
+	lines = append(lines, headerMark)
 	for i, node := range m.flatList {
-		line := m.treeRender.FormatNode(node)
+		var line string
 		if i == m.cursorIdx {
-			line = "▶ " + strings.TrimPrefix(line, " ")
+			line = "\x1b[1;33m▶\x1b[0m " + strings.TrimPrefix(m.treeRender.FormatNode(node), " ")
+			if m.focus == "tree" {
+				// aktive Zeile zusätzlich hervorheben
+				line = "\x1b[7m" + strings.TrimPrefix(m.treeRender.FormatNode(node), " ") + "\x1b[0m"
+				line = "\x1b[1;33m▶\x1b[0m " + line
+			}
+		} else {
+			line = "  " + m.treeRender.FormatNode(node)
 		}
 		lines = append(lines, line)
 	}
 	if m.workspace.TotalFiles() == 0 {
 		lines = append(lines, "(leer)")
 	}
-	return strings.Join(lines, "\n")
+	footerHint := "\n\x1b[2m ↑↓ Navig · Enter Tree→Edit \x1b[0m"
+	return strings.Join(lines, "\n") + footerHint
 }
 
 func (m Model) renderEditor() string {

@@ -26,6 +26,12 @@ Verwendung (Usage):
 Wenn kein WORKSPACE-PFAD angegeben ist, wird das aktuelle Verzeichnis benutzt.
 
 Bedienung (alle Windows-artig, keine Vim-Modi):
+
+  ↑↓ im Tree         Datei wird automatisch geladen + Vorschau
+  Enter auf File     Wechselt Focus in den Editor
+  Esc                Zurück zum Tree (verlässt Editor)
+  ↑↓ im Editor       Cursor im Buffer bewegen
+
   Ctrl+S        Speichern                  (Sprint R4)
   Ctrl+C/X/V    Copy / Cut / Paste         (Sprint R4)
   Ctrl+Z / Y    Undo / Redo                (Sprint R4)

@@ -69,6 +69,12 @@ type Model struct {
 
 	// U2 Focus-Modell: "tree" oder "editor"
 	focus string
+
+	// U3: Editor-Features
+	lineWrap      bool
+	goToLineMode  bool
+	editorScrollOffset int
+	goToLineQuery string
 }
 
 func New(workspacePath string) Model {
@@ -182,6 +188,26 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case tea.KeyCtrlD:
+		// Zeile duplizieren
+		if m.buffer != nil && m.focus == "editor" {
+			m.buffer.DuplicateLine()
+		}
+		return m, nil
+
+	case tea.KeyCtrlW:
+		// Soft-Wrap Toggle
+		m.lineWrap = !m.lineWrap
+		return m, nil
+
+	case tea.KeyCtrlG:
+		// Go-to-line Modal
+		m.goToLineMode = !m.goToLineMode
+		if !m.goToLineMode {
+			m.goToLineQuery = ""
+		}
+		return m, nil
+
 	case tea.KeyCtrlV:
 		if m.buffer != nil {
 			text, err := clipboard.ReadAll()
@@ -243,6 +269,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if m.paletteActive {
 			m.paletteActive = false
+			return m, nil
+		}
+		if m.goToLineMode {
+			m.goToLineMode = false
+			m.goToLineQuery = ""
 			return m, nil
 		}
 		// Esc zurück zum Tree
@@ -317,6 +348,18 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyEnter:
+		// Go-to-line Modal: Enter führt Sprung aus
+		if m.goToLineMode {
+			if m.buffer != nil {
+				var n int
+				fmt.Sscanf(m.goToLineQuery, "%d", &n)
+				m.buffer.GoToLine(n)
+				m.focus = "editor"
+			}
+			m.goToLineMode = false
+			m.goToLineQuery = ""
+			return m, nil
+		}
 		// Search-Modal: Enter zyklisch durch Matches
 		if m.searchActive && len(m.searchResults) > 0 {
 			m.searchIdx++
@@ -351,6 +394,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Sonst: selectCurrent (legacy fallback)
 		return m.selectCurrent()
 	case tea.KeyBackspace:
+		if m.goToLineMode && m.goToLineQuery != "" {
+			m.goToLineQuery = m.goToLineQuery[:len(m.goToLineQuery)-1]
+			return m, nil
+		}
 		if m.searchActive && m.searchQuery != "" {
 			if len(m.searchQuery) > 0 {
 				m.searchQuery = m.searchQuery[:len(m.searchQuery)-1]
@@ -372,6 +419,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if msg.Type == tea.KeyRunes {
+		// Go-to-line Mode: Query aufbauen
+		if m.goToLineMode {
+			for _, r := range msg.Runes {
+				if r >= '0' && r <= '9' {
+					m.goToLineQuery += string(r)
+				}
+			}
+			return m, nil
+		}
 		// Wenn Search aktiv: Query aufbauen
 		if m.searchActive && m.buffer != nil {
 			for _, r := range msg.Runes {
@@ -489,6 +545,8 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() string {
+	m.clampScrollOffset()
+
 	if m.quitting {
 		return "mdskim2 — beendet.\n"
 	}
@@ -576,37 +634,179 @@ func (m Model) renderSidebar() string {
 func (m Model) renderEditor() string {
 	if m.buffer == nil {
 		return "\x1b[1;36m[NO-BUFFER]\x1b[0m \x1b[1;37m# Willkommen bei mdskim2\x1b[0m\n\n" +
-			"\x1b[33m↑↓ in Sidebar\x1b[0m · Datei wird automatisch geladen\n" +
-			"\x1b[33mEnter\x1b[0m · Toggle Verzeichnis / Force-Open\n\n" +
+			"\x1b[33m↑↓\x1b[0m navigiert Tree und lädt Datei automatisch\n" +
+			"\x1b[33mEnter\x1b[0m wechselt in den Editor\n" +
+			"\x1b[33mEsc\x1b[0m zurück zum Tree\n" +
+			"\x1b[33mCtrl+S\x1b[0m Speichern, \x1b[33mCtrl+Q\x1b[0m Beenden\n\n" +
 			"Workspace: \x1b[1m" + m.workspacePath + "\x1b[0m"
 	}
 
-	// Header: aktive Datei + Mode deutlich
-	headerLine := "\x1b[48;5;63m\x1b[1;37m [EDIT] " + trimPath(m.currentFile, 50) + " \x1b[0m"
-
-	// Cursor position
-	totalLines := len(m.buffer.Lines)
-	totalCols := 0
-	if m.buffer.CursorRow >= 0 && m.buffer.CursorRow < len(m.buffer.Lines) {
-		totalCols = utf8.RuneCountInString(m.buffer.Lines[m.buffer.CursorRow])
-	}
-	cursorPos := fmt.Sprintf("\x1b[1;33mLn %d/%d · Col %d/%d\x1b[0m",
-		m.buffer.CursorRow+1, totalLines,
-		m.buffer.CursorCol+1, totalCols)
-
-	modFlag := "  "
+	// Header-Bar mit Datei + Modifiziert-Flag + Focus
+	dirtyMark := "  "
 	if m.buffer.Modified {
-		modFlag = "\x1b[1;31m ●\x1b[0m"
+		dirtyMark = "\x1b[1;31m●\x1b[0m"
+	}
+	focusMark := "\x1b[48;5;240m\x1b[37m TREE \x1b[0m"
+	if m.focus == "editor" {
+		focusMark = "\x1b[48;5;63m\x1b[1;37m EDIT \x1b[0m"
+	}
+	wrapMark := ""
+	if m.lineWrap {
+		wrapMark = " \x1b[2;37m[WRAP]\x1b[0m"
+	}
+	headerLine := focusMark + " \x1b[1;37m" + trimPath(m.currentFile, 50) + "\x1b[0m " + dirtyMark + wrapMark
+
+	// Selection-Range
+	srSel, scSel, erSel, ecSel, hasSel := m.buffer.SelectionRange()
+
+	// Line numbers + body mit Block-Cursor + Selection-Highlight
+	totalLines := len(m.buffer.Lines)
+	lineNumWidth := len(fmt.Sprintf("%d", totalLines))
+	if lineNumWidth < 2 {
+		lineNumWidth = 2
 	}
 
-	// Body with cursor on current line
-	p := markdown.HighlightParams{CurrentLine: m.buffer.CursorRow}
-	body := strings.Join(markdown.HighlightLines(m.buffer.Lines, p), "\n")
+	// Viewport-Scrolling: zeige Buffer ab scrollOffset
+	viewportHeight := m.editorViewportHeight()
+	visibleStart := m.editorScrollOffset
+	visibleEnd := visibleStart + viewportHeight
+	if visibleEnd > totalLines {
+		visibleEnd = totalLines
+	}
+	if visibleStart >= visibleEnd {
+		visibleStart = 0
+		visibleEnd = totalLines
+		if totalLines > viewportHeight {
+			visibleEnd = viewportHeight
+		}
+	}
 
-	// Trailing status row inside editor
-	editorStatus := "\n" + cursorPos + modFlag
+	var bodyLines []string
+	for i := visibleStart; i < visibleEnd; i++ {
+		line := m.buffer.Lines[i]
+		// Gutter: line number
+		var numFmt string
+		if i == m.buffer.CursorRow {
+			numFmt = fmt.Sprintf("\x1b[1;33m%*d\x1b[0m", lineNumWidth, i+1)
+		} else {
+			numFmt = fmt.Sprintf("\x1b[2;37m%*d\x1b[0m", lineNumWidth, i+1)
+		}
 
-	return headerLine + "\n" + body + editorStatus
+		// Build content with highlighting
+		p := markdown.HighlightParams{CurrentLine: m.buffer.CursorRow}
+		rendered := markdown.HighlightLineWith(line, p, i)
+
+		// Selection-Markierung: reverse-video Background auf markiertem Bereich
+		if hasSel && i >= srSel && i <= erSel {
+			rendered = applySelectionBG(rendered, line, i, srSel, scSel, erSel, ecSel)
+		}
+
+		// Block-Cursor an CursorCol
+		if i == m.buffer.CursorRow && m.focus == "editor" {
+			rendered = injectBlockCursor(rendered, line, m.buffer.CursorCol)
+		}
+
+		bodyLines = append(bodyLines, numFmt+" │ "+rendered)
+	}
+	body := strings.Join(bodyLines, "\n")
+
+	// Scroll-Indicator rechts (1 Zeichen pro Block)
+	var scrollArrow string
+	if visibleStart > 0 {
+		scrollArrow += "\x1b[33m↑\x1b[0m"
+	}
+	if visibleEnd < totalLines {
+		scrollArrow += "\x1b[33m↓\x1b[0m"
+	}
+	scrollInfo := ""
+	if scrollArrow != "" {
+		scrollInfo = " " + scrollArrow + fmt.Sprintf(" (%d-%d/%d)", visibleStart+1, visibleEnd, totalLines)
+	}
+
+	// Status-Bar mit allen Editor-Infos
+	var currentLineLen int
+	if m.buffer.CursorRow < len(m.buffer.Lines) {
+		currentLineLen = utf8.RuneCountInString(m.buffer.Lines[m.buffer.CursorRow])
+	}
+	wc := m.buffer.WordCount()
+	cc := m.buffer.CharCount()
+	cursorPos := fmt.Sprintf("\x1b[48;5;236m \x1b[1;33m Ln %d/%d \x1b[0m\x1b[48;5;236m \x1b[33m Col %d/%d \x1b[0m",
+		m.buffer.CursorRow+1, totalLines, m.buffer.CursorCol+1, currentLineLen)
+	counters := fmt.Sprintf("\x1b[2;37m Words %d · Chars %d \x1b[0m", wc, cc)
+	hints := "\x1b[2;37m [Shift+Arrows] Sel · [Ctrl+D] Dup · [Ctrl+G] Go-to · [Ctrl+W] Wrap \x1b[0m"
+
+	// Optional: Go-to-line Modal-Bar
+	gotoBar := ""
+	if m.goToLineMode {
+		gotoBar = "\n\x1b[48;5;240m\x1b[1;37m Go to line: \x1b[0m\x1b[1;33m" + m.goToLineQuery + "_\x1b[0m"
+	}
+
+	return headerLine + "\n" + body + "\n" + cursorPos + " " + counters + " " + scrollInfo + "\n" + hints + gotoBar
+}
+
+// editorViewportHeight returns the available height for the editor content.
+func (m Model) editorViewportHeight() int {
+	return m.height - 8
+}
+
+// editorScrollOffset tracks the first visible line.
+func (m *Model) clampScrollOffset() {
+	if m.buffer == nil {
+		return
+	}
+	vp := m.editorViewportHeight()
+	if m.editorScrollOffset < 0 {
+		m.editorScrollOffset = 0
+	}
+	maxOff := len(m.buffer.Lines) - vp
+	if maxOff < 0 {
+		maxOff = 0
+	}
+	if m.editorScrollOffset > maxOff {
+		m.editorScrollOffset = maxOff
+	}
+	if m.buffer.CursorRow < m.editorScrollOffset {
+		m.editorScrollOffset = m.buffer.CursorRow
+	}
+	if m.buffer.CursorRow >= m.editorScrollOffset+vp {
+		m.editorScrollOffset = m.buffer.CursorRow - vp + 1
+	}
+}
+
+// applySelectionBG wandelt den gerenderten String so um, dass der markierte Bereich in Selection-Farbe erscheint.
+func applySelectionBG(rendered string, originalLine string, lineIdx, sr, sc, er, ec int) string {
+	startCol := 0
+	endCol := len(originalLine)
+	if lineIdx == sr {
+		startCol = sc
+	}
+	if lineIdx == er {
+		endCol = ec
+	}
+	if startCol >= endCol {
+		return rendered
+	}
+	// Wrap the substring in selection highlight
+	before := string([]rune(originalLine)[:startCol])
+	selText := string([]rune(originalLine)[startCol:endCol])
+	after := string([]rune(originalLine)[endCol:])
+	// Note: für selected text rendern wir plain — highlighting wird durch selection BG ersetzt
+	return before + "\x1b[48;5;57m" + selText + "\x1b[0m" + after
+}
+
+// injectBlockCursor fügt einen Block-Cursor (reverse-video) an col in line ein.
+func injectBlockCursor(rendered string, originalLine string, col int) string {
+	runes := []rune(originalLine)
+	if col > len(runes) {
+		col = len(runes)
+	}
+	before := string(runes[:col])
+	if col < len(runes) {
+		char := runes[col]
+		after := string(runes[col+1:])
+		return before + "\x1b[7m" + string(char) + "\x1b[0m" + after
+	}
+	return rendered + "\x1b[7m \x1b[0m"
 }
 
 func (m Model) tocHeadings() []markdown.Heading {

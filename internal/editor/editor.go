@@ -21,6 +21,10 @@ type Buffer struct {
 	History    [][]string
 	HistoryIdx int
 	HistoryMax int
+
+	// U3: Selection (anchor..head sortiert)
+	SelAnchorRow int // Selection-Anker (oder -1 wenn keine Selection)
+	SelAnchorCol int
 }
 
 // LoadFromFile liest eine Datei in den Buffer.
@@ -48,10 +52,12 @@ func LoadFromFile(path string) (*Buffer, error) {
 // NewEmpty erzeugt einen leeren Buffer.
 func NewEmpty() *Buffer {
 	return &Buffer{
-		Lines:      []string{""},
-		History:    [][]string{{""}},
-		HistoryIdx: 0,
-		HistoryMax: 50,
+		Lines:       []string{""},
+		History:     [][]string{{""}},
+		HistoryIdx:  0,
+		HistoryMax:  50,
+		SelAnchorRow: -1,
+		SelAnchorCol: -1,
 	}
 }
 
@@ -230,6 +236,15 @@ func (b *Buffer) DeleteCharForward() {
 
 // InsertNewLine fügt einen Newline an Cursor-Position ein.
 func (b *Buffer) InsertNewLine() {
+	if b.HasSelection() {
+		b.DeleteSelection()
+	}
+	if len(b.Lines) == 0 {
+		b.Lines = []string{""}
+	}
+	if b.CursorRow >= len(b.Lines) {
+		b.CursorRow = len(b.Lines) - 1
+	}
 	line := b.Lines[b.CursorRow]
 	runes := []rune(line)
 	if b.CursorCol > len(runes) {
@@ -237,10 +252,20 @@ func (b *Buffer) InsertNewLine() {
 	}
 	left := string(runes[:b.CursorCol])
 	right := string(runes[b.CursorCol:])
+	// Auto-Indent: leading whitespace of current line (inkl. Tab)
+	indent := ""
+	for _, r := range runes {
+		if r == ' ' || r == '\t' {
+			indent += string(r)
+		} else {
+			break
+		}
+	}
 	b.Lines[b.CursorRow] = left
-	b.Lines = append(b.Lines[:b.CursorRow+1], append([]string{right}, b.Lines[b.CursorRow+1:]...)...)
+	newLineText := indent + right
+	b.Lines = append(b.Lines[:b.CursorRow+1], append([]string{newLineText}, b.Lines[b.CursorRow+1:]...)...)
 	b.CursorRow++
-	b.CursorCol = 0
+	b.CursorCol = utf8.RuneCountInString(indent)
 	b.Modified = true
 	b.SnapshotHistory()
 }
@@ -304,4 +329,406 @@ type NoPathError struct{}
 
 func (e *NoPathError) Error() string {
 	return "Buffer hat keinen Pfad"
+}
+
+
+// GoToLine bewegt den Cursor zu einer bestimmten Zeile (1-indexed).
+func (b *Buffer) GoToLine(line1 int) {
+	if len(b.Lines) == 0 {
+		return
+	}
+	if line1 < 1 {
+		line1 = 1
+	}
+	if line1 > len(b.Lines) {
+		line1 = len(b.Lines)
+	}
+	b.CursorRow = line1 - 1
+	if b.CursorRow >= len(b.Lines) {
+		b.CursorRow = len(b.Lines) - 1
+	}
+	b.CursorCol = 0
+}
+
+// HasSelection reports whether there's an active selection.
+func (b *Buffer) HasSelection() bool {
+	if b.SelAnchorRow < 0 {
+		return false
+	}
+	if b.SelAnchorRow == b.CursorRow && b.SelAnchorCol == b.CursorCol {
+		return false
+	}
+	return true
+}
+
+// ClearSelection löscht die Selection.
+func (b *Buffer) ClearSelection() {
+	b.SelAnchorRow = -1
+	b.SelAnchorCol = -1
+}
+
+// SelectionRange returns (startRow, startCol, endRow, endCol) normalisiert (start <= end).
+func (b *Buffer) SelectionRange() (sr, sc, er, ec int, hasSel bool) {
+	if !b.HasSelection() {
+		return 0, 0, 0, 0, false
+	}
+	if b.SelAnchorRow > b.CursorRow || (b.SelAnchorRow == b.CursorRow && b.SelAnchorCol > b.CursorCol) {
+		return b.CursorRow, b.CursorCol, b.SelAnchorRow, b.SelAnchorCol, true
+	}
+	return b.SelAnchorRow, b.SelAnchorCol, b.CursorRow, b.CursorCol, true
+}
+
+// SelectedText returns den aktuell markierten Text.
+func (b *Buffer) SelectedText() string {
+	sr, sc, er, ec, has := b.SelectionRange()
+	if !has || (sr == er && sc == ec) {
+		return ""
+	}
+	var b2 strings.Builder
+	if sr == er {
+		// Single-line
+		r := []rune(b.Lines[sr])
+		if ec > len(r) {
+			ec = len(r)
+		}
+		b2.WriteString(string(r[sc:ec]))
+	} else {
+		// Multi-line
+		b2.WriteString(b.Lines[sr][utf8.RuneCountInString(b.Lines[sr][:sc*0]):])
+		// Hmm — need to use rune-based. Just rebuild:
+		srcRunes := []rune(b.Lines[sr])
+		if sc > len(srcRunes) {
+			sc = len(srcRunes)
+		}
+		b2.Reset()
+		b2.WriteString(string(srcRunes[sc:]))
+		for i := sr + 1; i < er; i++ {
+			b2.WriteByte('\n')
+			b2.WriteString(b.Lines[i])
+		}
+		b2.WriteByte('\n')
+		destRunes := []rune(b.Lines[er])
+		if ec > len(destRunes) {
+			ec = len(destRunes)
+		}
+		b2.WriteString(string(destRunes[:ec]))
+	}
+	return b2.String()
+}
+
+// DeleteSelection entfernt die markierte Region und positioniert den Cursor an deren Start.
+func (b *Buffer) DeleteSelection() {
+	sr, sc, er, ec, has := b.SelectionRange()
+	if !has {
+		return
+	}
+	if len(b.Lines) == 0 {
+		return
+	}
+	if sr >= len(b.Lines) {
+		return
+	}
+	if er >= len(b.Lines) {
+		er = len(b.Lines) - 1
+	}
+	srcR := []rune(b.Lines[sr])
+	if sc > len(srcR) {
+		sc = len(srcR)
+	}
+	if sc < 0 {
+		sc = 0
+	}
+	head := string(srcR[:sc])
+	if sr == er {
+		destR := srcR
+		if ec > len(destR) {
+			ec = len(destR)
+		}
+		b.Lines[sr] = head + string(destR[ec:])
+		b.CursorRow = sr
+		b.CursorCol = sc
+	} else {
+		destLine := b.Lines[er]
+		destR := []rune(destLine)
+		if ec > len(destR) {
+			ec = len(destR)
+		}
+		tailRest := string(destR[ec:])
+		// Compose: head + (remainder of original lines as separate entries)
+		newLines := []string{head + tailRest}
+		// Append the lines after er as separate lines (keep them as they were)
+		for i := er + 1; i < len(b.Lines); i++ {
+			newLines = append(newLines, b.Lines[i])
+		}
+		b.Lines = append(b.Lines[:sr], newLines...)
+		if len(b.Lines) == 0 {
+			b.Lines = []string{""}
+		}
+		b.CursorRow = sr
+		b.CursorCol = sc
+	}
+	b.ClearSelection()
+	b.Modified = true
+	b.SnapshotHistory()
+}
+
+// SetCursorWithSelection bewegt den Cursor und setzt/löscht Selection.
+func (b *Buffer) SetCursorWithSelection(row, col int, extend bool) {
+	if !extend {
+		b.ClearSelection()
+	} else if !b.HasSelection() {
+		b.SelAnchorRow = b.CursorRow
+		b.SelAnchorCol = b.CursorCol
+	}
+	// Clamp row/col
+	if row < 0 {
+		row = 0
+	}
+	if row >= len(b.Lines) {
+		row = len(b.Lines) - 1
+	}
+	if row < 0 {
+		return
+	}
+	lineLen := utf8.RuneCountInString(b.Lines[row])
+	if col < 0 {
+		col = 0
+	}
+	if col > lineLen {
+		col = lineLen
+	}
+	b.CursorRow = row
+	b.CursorCol = col
+}
+
+// MoveCursorExt setzt Cursor wie MoveCursor aber mit optionaler Selection-Extension.
+func (b *Buffer) MoveCursorExt(dRow, dCol int, extend bool) {
+	if !extend && b.HasSelection() {
+		// Bei normalem Pfeil: Selection auf Cursorposition kollabieren
+		b.ClearSelection()
+	}
+	b.MoveCursor(dRow, dCol)
+	if extend && b.HasSelection() {
+		// Anchored; cursor moved already
+	}
+}
+
+// InsertCharWithSelection löscht zuerst Selection, dann insert.
+func (b *Buffer) InsertCharWithSelection(r rune) {
+	if b.HasSelection() {
+		b.DeleteSelection()
+	}
+	b.InsertChar(r)
+}
+
+// WordLeft bewegt den Cursor wortweise nach links.
+func (b *Buffer) WordLeft() {
+	if len(b.Lines) == 0 {
+		return
+	}
+	r := b.CursorRow
+	c := b.CursorCol
+	if r < 0 {
+		r = 0
+	}
+	if r >= len(b.Lines) {
+		r = len(b.Lines) - 1
+	}
+	lineLen := utf8.RuneCountInString(b.Lines[r])
+	if c > lineLen {
+		c = lineLen
+	}
+	// More than one step left in current line: scan within line
+	for r >= 0 {
+		line := []rune(b.Lines[r])
+		if c == 0 {
+			// At BOL — try move to previous line
+			if r > 0 {
+				r--
+				line = []rune(b.Lines[r])
+				c = len(line)
+				// Could repeat if previous line was empty: try again
+				if c == 0 {
+					continue
+				}
+				// Skip past trailing whitespace, then past word
+				for c > 0 && isWordSep(line[c-1]) {
+					c--
+				}
+				for c > 0 && !isWordSep(line[c-1]) {
+					c--
+				}
+				b.CursorRow = r
+				b.CursorCol = c
+				return
+			}
+			b.CursorRow = r
+			return
+		}
+		// Scan left within current line
+		startC := c
+		for c > 0 && isWordSep(line[c-1]) {
+			c--
+		}
+		if c > 0 {
+			for c > 0 && !isWordSep(line[c-1]) {
+				c--
+			}
+		}
+		if c < startC {
+			b.CursorRow = r
+			b.CursorCol = c
+			return
+		}
+		// Couldn't move left in this line — go to EOL of previous
+		if r > 0 {
+			r--
+			c = len([]rune(b.Lines[r]))
+			continue
+		}
+		b.CursorRow = 0
+		b.CursorCol = 0
+		return
+	}
+}
+
+// WordRight bewegt den Cursor wortweise nach rechts.
+func (b *Buffer) WordRight() {
+	if len(b.Lines) == 0 {
+		return
+	}
+	r := b.CursorRow
+	c := b.CursorCol
+	for r < len(b.Lines) {
+		line := []rune(b.Lines[r])
+		if c >= len(line) && r+1 < len(b.Lines) {
+			r++
+			c = 0
+			line = []rune(b.Lines[r])
+			for c < len(line) && isWordSep(line[c]) {
+				c++
+			}
+			b.CursorRow = r
+			b.CursorCol = c
+			return
+		}
+		if c >= len(line) {
+			b.CursorRow = r
+			b.CursorCol = len(line)
+			return
+		}
+		startC := c
+		// If at start of word, skip past word; if at whitespace, skip past whitespace
+		if c < len(line) && isWordSep(line[c]) {
+			// skip whitespace
+			for c < len(line) && isWordSep(line[c]) {
+				c++
+			}
+		} else if c < len(line) {
+			// skip word
+			for c < len(line) && !isWordSep(line[c]) {
+				c++
+			}
+		}
+		if c > startC {
+			b.CursorRow = r
+			b.CursorCol = c
+			return
+		}
+	b.CursorRow = r
+	b.CursorCol = c
+}
+}
+
+// isWordSep returns true if rune is whitespace or punctuation.
+func isWordSep(r rune) bool {
+	if r == ' ' || r == '\t' || r == '\n' {
+		return true
+	}
+	if r >= 'a' && r <= 'z' {
+		return false
+	}
+	if r >= 'A' && r <= 'Z' {
+		return false
+	}
+	if r >= '0' && r <= '9' {
+		return false
+	}
+	return r == '_'
+}
+
+// DuplicateLine dupliziert die aktuelle Zeile.
+func (b *Buffer) DuplicateLine() {
+	if b.CursorRow < 0 || b.CursorRow >= len(b.Lines) {
+		return
+	}
+	line := b.Lines[b.CursorRow]
+	b.Lines = append(b.Lines[:b.CursorRow+1], append([]string{line}, b.Lines[b.CursorRow+1:]...)...)
+	b.CursorRow++
+	b.Modified = true
+	b.SnapshotHistory()
+}
+
+// MoveLineUp bewegt die aktuelle Zeile eine Position nach oben.
+func (b *Buffer) MoveLineUp() {
+	if b.CursorRow <= 0 || b.CursorRow >= len(b.Lines) {
+		return
+	}
+	b.Lines[b.CursorRow], b.Lines[b.CursorRow-1] = b.Lines[b.CursorRow-1], b.Lines[b.CursorRow]
+	b.CursorRow--
+	b.Modified = true
+	b.SnapshotHistory()
+}
+
+// MoveLineDown bewegt die aktuelle Zeile eine Position nach unten.
+func (b *Buffer) MoveLineDown() {
+	if b.CursorRow < 0 || b.CursorRow >= len(b.Lines)-1 {
+		return
+	}
+	b.Lines[b.CursorRow], b.Lines[b.CursorRow+1] = b.Lines[b.CursorRow+1], b.Lines[b.CursorRow]
+	b.CursorRow++
+	b.Modified = true
+	b.SnapshotHistory()
+}
+
+// WordCount returns die Anzahl Wörter im Buffer.
+func (b *Buffer) WordCount() int {
+	n := 0
+	for _, line := range b.Lines {
+		inWord := false
+		for _, r := range line {
+			if r == ' ' || r == '\t' {
+				inWord = false
+			} else {
+				if !inWord {
+					n++
+					inWord = true
+				}
+			}
+		}
+	}
+	return n
+}
+
+// CharCount returns die Anzahl Zeichen (ohne Newlines).
+func (b *Buffer) CharCount() int {
+	n := 0
+	for _, line := range b.Lines {
+		n += utf8.RuneCountInString(line)
+	}
+	return n
+}
+
+// LineIndent returns die Einrückung (Whitespace-Prefix) der Zeile row.
+func (b *Buffer) LineIndent(row int) string {
+	if row < 0 || row >= len(b.Lines) {
+		return ""
+	}
+	line := b.Lines[row]
+	for i, r := range line {
+		if r != ' ' && r != '\t' {
+			return line[:i]
+		}
+	}
+	return line
 }

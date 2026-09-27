@@ -33,26 +33,32 @@
                         [1;37m2[0m                            
                                                      
                         [33m↑[m                            
-                        [33m↓[m                            
-                        [33mi[m                            
-                        [33mn[m                            
-                        [33mS[m                            
-                        [33mi[m                            
-                        [33md[m                            
-                        [33me[m                            
-                        [33mb[m                            
-                        [33ma[m                            
-                        [33mr[0m                            
-                        ·                            
+                        [33m↓[0m                            
+                        n                            
+                        a                            
+                        v                            
+                        i                            
+                        g                            
+                        i                            
+                        e                            
+                        r                            
+                        t                            
+                        T                            
+                        r                            
+                        e                            
+                        e                            
+                        u                            
+                        n                            
+                        d                            
+                        l                            
+                        ä                            
+                        d                            
+                        t                            
                         D                            
                         a                            
                         t                            
                         e                            
                         i                            
-                        w                            
-                        i                            
-                        r                            
-                        d                            
                         a                            
                         u                            
                         t                            
@@ -64,45 +70,73 @@
                         s                            
                         c                            
                         h                            
-                        g                            
-                        e                            
-                        l                            
-                        a                            
-                        d                            
-                        e                            
-                        n                            
                         [33mE[m                            
                         [33mn[m                            
                         [33mt[m                            
                         [33me[m                            
                         [33mr[0m                            
-                        ·                            
-                        T                            
-                        o                            
-                        g                            
-                        g                            
+                        w                            
+                        e                            
+                        c                            
+                        h                            
+                        s                            
+                        e                            
                         l                            
+                        t                            
+                        i                            
+                        n                            
+                        d                            
                         e                            
-                        V                            
-                        e                            
+                        n                            
+                        E                            
+                        d                            
+                        i                            
+                        t                            
+                        o                            
                         r                            
+                        [33mE[m                            
+                        [33ms[m                            
+                        [33mc[0m                            
                         z                            
+                        u                            
+                        r                            
+                        ü                            
+                        c                            
+                        k                            
+                        z                            
+                        u                            
+                        m                            
+                        T                            
+                        r                            
+                        e                            
+                        e                            
+                        [33mC[m                            
+                        [33mt[m                            
+                        [33mr[m                            
+                        [33ml[m                            
+                        [33m+[m                            
+                        [33mS[0m                            
+                        S                            
+                        p                            
                         e                            
                         i                            
                         c                            
                         h                            
-                        n                            
-                        i                            
-                        s                            
-                        /                            
-                        F                            
-                        o                            
-                        r                            
-                        c                            
                         e                            
-                        -                            
-                        O                            
-                        p                            
+                        r                            
+                        n                            
+                        ,                            
+                        [33mC[m                            
+                        [33mt[m                            
+                        [33mr[m                            
+                        [33ml[m                            
+                        [33m+[m                            
+                        [33mQ[0m                            
+                        B                            
+                        e                            
+                        e                            
+                        n                            
+                        d                            
                         e                            
                         n                            
                                                      

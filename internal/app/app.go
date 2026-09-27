@@ -12,6 +12,7 @@ import (
 	"github.com/dennis605/mdskim2/internal/markdown"
 	"github.com/dennis605/mdskim2/internal/preview"
 	"github.com/dennis605/mdskim2/internal/search"
+	"github.com/dennis605/mdskim2/internal/palette"
 	"github.com/dennis605/mdskim2/internal/tabs"
 	"github.com/dennis605/mdskim2/internal/ui"
 	"github.com/dennis605/mdskim2/internal/workspace"
@@ -54,6 +55,11 @@ type Model struct {
 	layout  ui.Layout
 	version string
 
+	// R9: Command Palette
+	palette        *palette.Registry
+	paletteActive  bool
+	paletteQuery   string
+
 	saveError string
 }
 
@@ -62,19 +68,31 @@ func New(workspacePath string) Model {
 	r := workspace.NewTreeRenderer()
 	flat := ws.FlatList(r.CollapsedDirs)
 
-	return Model{
+	m := Model{
 		workspacePath: workspacePath,
 		width:         120,
 		height:        40,
 		mode:          "EDIT",
-		version:       "R8: Tabs + Quick Open",
+		version:       "R9: Command Palette",
 		theme:         ui.Light(),
 		layout:        ui.DefaultLayout(),
 		workspace:     ws,
 		treeRender:    r,
 		flatList:      flat,
 		tabs:          tabs.NewManager(),
+		palette:       palette.NewRegistry(),
 	}
+
+	// Register default commands
+	m.palette.Register(palette.Command{Name: "save", Description: "Save current file", Keywords: []string{"write", "store", "ctrl+s"}})
+	m.palette.Register(palette.Command{Name: "open", Description: "Open file", Keywords: []string{"load", "read"}})
+	m.palette.Register(palette.Command{Name: "preview", Description: "Toggle preview", Keywords: []string{"render", "glamour"}})
+	m.palette.Register(palette.Command{Name: "find", Description: "Open search modal", Keywords: []string{"search", "fuzzy"}})
+	m.palette.Register(palette.Command{Name: "replace", Description: "Replace in file", Keywords: []string{"substitute"}})
+	m.palette.Register(palette.Command{Name: "bold", Description: "Insert bold markup", Keywords: []string{"strong"}})
+	m.palette.Register(palette.Command{Name: "italic", Description: "Insert italic markup", Keywords: []string{"em"}})
+	m.palette.Register(palette.Command{Name: "quit", Description: "Quit application", Keywords: []string{"exit", "close"}})
+	return m
 }
 
 func (m Model) Init() tea.Cmd { return nil }
@@ -144,6 +162,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.quickOpenMode = !m.quickOpenMode
 		if !m.quickOpenMode {
 			m.quickOpenQuery = ""
+		}
+		return m, nil
+
+	case tea.KeyCtrlK:
+		// Toggle Command Palette
+		m.paletteActive = !m.paletteActive
+		if !m.paletteActive {
+			m.paletteQuery = ""
 		}
 		return m, nil
 
@@ -388,6 +414,17 @@ func (m Model) View() string {
 	header := m.layout.Header(m.workspacePath, m.theme)
 	sidebar := m.layout.Sidebar(m.renderSidebar(), m.theme, true)
 	editorContent := m.renderEditor()
+	if m.paletteActive && m.palette != nil {
+		matches := m.palette.Search(m.paletteQuery)
+		var matchLines []string
+		matchLines = append(matchLines, fmt.Sprintf("CMD: %s", m.paletteQuery))
+		for i, name := range matches {
+			if i >= 5 { break }
+			desc, _ := m.palette.Run(name)
+			matchLines = append(matchLines, fmt.Sprintf("  > %s — %s", name, desc))
+		}
+		editorContent = strings.Join(matchLines, "\n") + "\n" + editorContent
+	}
 	if m.searchActive {
 		count := len(m.searchResults)
 		barText := fmt.Sprintf("SUCHE: %s [Enter: Jump, Esc: Close, Ctrl+H: Replace, %d Treffer]", m.searchQuery, count)

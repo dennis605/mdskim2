@@ -20,6 +20,7 @@ func DefaultShortcuts() []Shortcut {
 		{Key: "Ctrl+Y", Description: "Redo"},
 		{Key: "Ctrl+B", Description: "Bold"},
 		{Key: "Ctrl+F", Description: "Find"},
+		{Key: "Ctrl+H", Description: "Replace"},
 		{Key: "Ctrl+Q", Description: "Quit"},
 	}
 }

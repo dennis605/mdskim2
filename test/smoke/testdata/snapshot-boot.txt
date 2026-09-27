@@ -93,4 +93,4 @@ FILES                   [INHALT
                         e                            
 ─                              
 … EDIT · R5: MD-Highlight + TOC
-Ctrl+S Save │ Ctrl+Z Undo │ Ctrl+Y Redo │ Ctrl+B Bold │ Ctrl+F Find │ Ctrl+Q Quit
+Ctrl+S Save │ Ctrl+Z Undo │ Ctrl+Y Redo │ Ctrl+B Bold │ Ctrl+F Find │ Ctrl+H Replace │ Ctrl+Q Quit

@@ -80,7 +80,7 @@ func (b *Buffer) TotalWords() int {
 }
 
 // snapshotHistory speichert aktuelle Lines in History (nach der Änderung).
-func (b *Buffer) snapshotHistory() {
+func (b *Buffer) SnapshotHistory() {
 	// Wenn wir nach Undo schreiben, verwerfen spätere History
 	if b.HistoryIdx >= 0 && b.HistoryIdx < len(b.History)-1 {
 		b.History = b.History[:b.HistoryIdx+1]
@@ -179,7 +179,7 @@ func (b *Buffer) InsertChar(ch rune) {
 	b.Lines[b.CursorRow] = string(runes)
 	b.CursorCol++
 	b.Modified = true
-	b.snapshotHistory()
+	b.SnapshotHistory()
 }
 
 // DeleteChar löscht das Zeichen vor dem Cursor (Backspace).
@@ -194,7 +194,7 @@ func (b *Buffer) DeleteChar() {
 		b.CursorRow--
 		b.CursorCol = utf8.RuneCountInString(prev)
 		b.Modified = true
-		b.snapshotHistory()
+		b.SnapshotHistory()
 		return
 	}
 	line := b.Lines[b.CursorRow]
@@ -206,7 +206,7 @@ func (b *Buffer) DeleteChar() {
 	b.Lines[b.CursorRow] = string(runes)
 	b.CursorCol--
 	b.Modified = true
-	b.snapshotHistory()
+	b.SnapshotHistory()
 }
 
 // DeleteCharForward löscht das Zeichen an Cursor (Delete-Key).
@@ -218,14 +218,14 @@ func (b *Buffer) DeleteCharForward() {
 			b.Lines[b.CursorRow] = line + b.Lines[b.CursorRow+1]
 			b.Lines = append(b.Lines[:b.CursorRow+1], b.Lines[b.CursorRow+2:]...)
 			b.Modified = true
-			b.snapshotHistory()
+			b.SnapshotHistory()
 		}
 		return
 	}
 	runes = append(runes[:b.CursorCol], runes[b.CursorCol+1:]...)
 	b.Lines[b.CursorRow] = string(runes)
 	b.Modified = true
-	b.snapshotHistory()
+	b.SnapshotHistory()
 }
 
 // InsertNewLine fügt einen Newline an Cursor-Position ein.
@@ -242,7 +242,7 @@ func (b *Buffer) InsertNewLine() {
 	b.CursorRow++
 	b.CursorCol = 0
 	b.Modified = true
-	b.snapshotHistory()
+	b.SnapshotHistory()
 }
 
 // InsertString fügt einen String an Cursor-Position ein.
@@ -268,7 +268,7 @@ func (b *Buffer) DeleteLine() {
 		b.CursorRow = 0
 		b.CursorCol = 0
 		b.Modified = true
-		b.snapshotHistory()
+		b.SnapshotHistory()
 		return
 	}
 	b.Lines = append(b.Lines[:b.CursorRow], b.Lines[b.CursorRow+1:]...)
@@ -277,7 +277,7 @@ func (b *Buffer) DeleteLine() {
 	}
 	b.CursorCol = 0
 	b.Modified = true
-	b.snapshotHistory()
+	b.SnapshotHistory()
 }
 
 // ToString serialisiert den Buffer zurück zu einem String.
@@ -295,7 +295,7 @@ func (b *Buffer) Save() error {
 		return err
 	}
 	b.Modified = false
-	b.snapshotHistory()
+	b.SnapshotHistory()
 	return nil
 }
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/dennis605/mdskim2/internal/editor"
 	"github.com/dennis605/mdskim2/internal/markdown"
+	"github.com/dennis605/mdskim2/internal/search"
 	"github.com/dennis605/mdskim2/internal/ui"
 	"github.com/dennis605/mdskim2/internal/workspace"
 )
@@ -26,10 +27,16 @@ type Model struct {
 	flatList   []*workspace.FileNode
 
 	buffer      *editor.Buffer
-	clipboard   string
+		clipboard   string
 	selection   string
 	mode        string
 	currentFile string
+
+	// R6: Search-Modal
+	searchQuery    string
+	searchResults  []search.Match
+	searchIdx      int
+	searchActive   bool
 
 	theme   ui.Theme
 	layout  ui.Layout
@@ -121,6 +128,34 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.buffer.MoveCursor(0, -2)
 		}
 		return m, nil
+	case tea.KeyCtrlF:
+		// Toggle Search-Modal
+		m.searchActive = !m.searchActive
+		if m.searchActive && m.buffer == nil {
+			m.searchActive = false
+		}
+		if !m.searchActive {
+			m.searchQuery = ""
+			m.searchResults = nil
+			m.searchIdx = 0
+		}
+		return m, nil
+
+	case tea.KeyCtrlH:
+		// Replace: einfach Ersetzen aller Vorkommen (ein-Schritt-Modal)
+		if m.buffer == nil || m.searchQuery == "" {
+			return m, nil
+		}
+		opt := search.Options{CaseSensitive: false}
+		newLines, count := search.ReplaceAll(m.buffer.Lines, m.searchQuery, "REPLACED", opt)
+		if count > 0 {
+			m.buffer.Lines = newLines
+			m.buffer.Modified = true
+			m.buffer.SnapshotHistory()
+		}
+		m.mode = fmt.Sprintf("REPLACE: %d", count)
+		return m, nil
+
 	case tea.KeyCtrlI:
 		if m.buffer != nil {
 			m.buffer.InsertString("**")
@@ -164,12 +199,33 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyEnter:
+		if m.searchActive && len(m.searchResults) > 0 {
+			m.searchIdx++
+			if m.searchIdx >= len(m.searchResults) {
+				m.searchIdx = 0
+			}
+			match := m.searchResults[m.searchIdx]
+			if m.buffer != nil {
+				m.buffer.CursorRow = match.Line
+				m.buffer.CursorCol = match.Col
+			}
+			return m, nil
+		}
 		if m.buffer != nil {
 			m.buffer.InsertNewLine()
 			return m, nil
 		}
 		return m.selectCurrent()
 	case tea.KeyBackspace:
+		if m.searchActive && m.searchQuery != "" {
+			if len(m.searchQuery) > 0 {
+				m.searchQuery = m.searchQuery[:len(m.searchQuery)-1]
+			}
+			if m.buffer != nil {
+				m.searchResults = search.Find(m.buffer.Lines, m.searchQuery, search.Options{})
+			}
+			return m, nil
+		}
 		if m.buffer != nil {
 			m.buffer.DeleteChar()
 			return m, nil
@@ -183,6 +239,16 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if msg.Type == tea.KeyRunes {
+		// Wenn Search aktiv: Query aufbauen
+		if m.searchActive && m.buffer != nil {
+			for _, r := range msg.Runes {
+				m.searchQuery += string(r)
+			}
+			// Recompute matches
+			m.searchResults = search.Find(m.buffer.Lines, m.searchQuery, search.Options{})
+			m.searchIdx = 0
+			return m, nil
+		}
 		if m.buffer != nil {
 			for _, r := range msg.Runes {
 				m.buffer.InsertChar(r)
@@ -271,7 +337,13 @@ func (m Model) View() string {
 
 	header := m.layout.Header(m.workspacePath, m.theme)
 	sidebar := m.layout.Sidebar(m.renderSidebar(), m.theme, true)
-	editor := m.layout.Editor(m.renderEditor(), m.theme, m.buffer != nil)
+	editorContent := m.renderEditor()
+	if m.searchActive {
+		count := len(m.searchResults)
+		barText := fmt.Sprintf("SUCHE: %s [Enter: Jump, Esc: Close, Ctrl+H: Replace, %d Treffer]", m.searchQuery, count)
+		editorContent = barText + "\n" + editorContent
+	}
+	editor := m.layout.Editor(editorContent, m.theme, m.buffer != nil)
 	toc := m.layout.TOC(m.renderTOC(), m.theme, len(m.tocHeadings()) > 0)
 	body := m.layout.Compose(sidebar, editor, toc)
 

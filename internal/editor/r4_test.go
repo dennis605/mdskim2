@@ -11,7 +11,7 @@ func TestUndoRedo(t *testing.T) {
 	buf.Lines = []string{"hello"}
 	buf.CursorRow = 0
 	buf.CursorCol = 5
-	buf.snapshotHistory() // [hello] als initial
+	buf.SnapshotHistory() // [hello] als initial
 	buf.InsertChar('!')
 	if buf.Lines[0] != "hello!" {
 		t.Errorf("nach Insert: %q, erwartet 'hello!'", buf.Lines[0])
@@ -84,7 +84,7 @@ func TestUndoVerwerftRedoHistory(t *testing.T) {
 	buf.Lines = []string{"a"}
 	buf.CursorRow = 0
 	buf.CursorCol = 1
-	buf.snapshotHistory() // [a] als initial
+	buf.SnapshotHistory() // [a] als initial
 	buf.InsertChar('b') // History: [a, ab]
 	buf.InsertChar('c') // History: [a, ab, abc]
 	buf.Undo()          // History: [a, ab], Lines: ab

@@ -12,6 +12,7 @@ import (
 	"github.com/dennis605/mdskim2/internal/markdown"
 	"github.com/dennis605/mdskim2/internal/preview"
 	"github.com/dennis605/mdskim2/internal/search"
+	"github.com/dennis605/mdskim2/internal/tabs"
 	"github.com/dennis605/mdskim2/internal/ui"
 	"github.com/dennis605/mdskim2/internal/workspace"
 )
@@ -44,6 +45,11 @@ type Model struct {
 	previewSplit   bool   // Split-View (Editor + Preview)
 	previewCache   string // cached preview render
 
+	// R8: Tabs + Quick-Open
+	tabs           *tabs.Manager
+	quickOpenMode  bool
+	quickOpenQuery string
+
 	theme   ui.Theme
 	layout  ui.Layout
 	version string
@@ -61,12 +67,13 @@ func New(workspacePath string) Model {
 		width:         120,
 		height:        40,
 		mode:          "EDIT",
-		version:       "R7: Preview + Split",
+		version:       "R8: Tabs + Quick Open",
 		theme:         ui.Light(),
 		layout:        ui.DefaultLayout(),
 		workspace:     ws,
 		treeRender:    r,
 		flatList:      flat,
+		tabs:          tabs.NewManager(),
 	}
 }
 
@@ -132,6 +139,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case tea.KeyCtrlT:
+		// Toggle Quick-Open
+		m.quickOpenMode = !m.quickOpenMode
+		if !m.quickOpenMode {
+			m.quickOpenQuery = ""
+		}
+		return m, nil
+
 	case tea.KeyCtrlV:
 		if m.buffer != nil {
 			text, err := clipboard.ReadAll()
@@ -182,6 +197,15 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyEsc:
+		// Esc schließt Modal
+		if m.searchActive {
+			m.searchActive = false
+			return m, nil
+		}
+		if m.quickOpenMode {
+			m.quickOpenMode = false
+			return m, nil
+		}
 		return m, nil
 	case tea.KeyUp:
 		if m.buffer != nil {
@@ -203,6 +227,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case tea.KeyRight:
+		if m.quickOpenMode && len(m.searchResults) > 0 && m.tabs != nil {
+			// Quick Open: Enter selects active
+			return m, nil
+		}
 		if m.buffer != nil {
 			m.buffer.MoveCursor(0, 1)
 		}
@@ -325,6 +353,9 @@ func (m Model) selectCurrent() (tea.Model, tea.Cmd) {
 		m.buffer = buf
 		m.currentFile = node.Path
 		m.mode = "EDIT"
+		if m.tabs != nil {
+			m.tabs.Open(node.Path, buf)
+		}
 	}
 	return m, nil
 }

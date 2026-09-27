@@ -91,6 +91,6 @@ FILES                   [INHALT
                         a                            
                         c                            
                         e                            
-─                           
-… EDIT · R7: Preview + Split
-Ctrl+S Save │ Ctrl+Z Undo │ Ctrl+Y Redo │ Ctrl+B Bold │ Ctrl+F Find │ Ctrl+H Replace │ Ctrl+Q Quit
+─                             
+… EDIT · R8: Tabs + Quick Open
+Ctrl+S Save │ Ctrl+Z Undo │ Ctrl+Y Redo │ Ctrl+B Bold │ Ctrl+T Quick Open │ Ctrl+P Preview │ Ctrl+Q Quit

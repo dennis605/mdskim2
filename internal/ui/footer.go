@@ -25,6 +25,8 @@ func DefaultShortcuts() []Shortcut {
 		{Key: "Ctrl+Q", Description: "Quit"},
 		{Key: "F6", Description: "Focus next pane"},
 		{Key: "Alt+1..4", Description: "Jump to pane"},
+		{Key: "Ctrl+Shift+←/→", Description: "Cycle panes"},
+		{Key: "Ctrl+Shift+↑/↓", Description: "First/Last pane"},
 	}
 }
 

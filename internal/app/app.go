@@ -520,6 +520,36 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m = m.setFocus(prev)
 			return m, nil
 		}
+		// U6.1: Ctrl+Shift+Arrow keys for pane navigation
+		//   ctrl+shift+up    → first pane (Tree)
+		//   ctrl+shift+down  → last pane (Right/TOC)
+		//   ctrl+shift+left  → previous pane
+		//   ctrl+shift+right → next pane
+		arrowKey := msg.String()
+		if strings.HasPrefix(arrowKey, "ctrl+shift+") {
+			switch strings.TrimPrefix(arrowKey, "ctrl+shift+") {
+			case "up":
+				panes := m.visiblePanes()
+				if len(panes) > 0 {
+					m = m.setFocus(panes[0])
+				}
+				return m, nil
+			case "down":
+				panes := m.visiblePanes()
+				if len(panes) > 0 {
+					m = m.setFocus(panes[len(panes)-1])
+				}
+				return m, nil
+			case "left":
+				prev := m.cycleFocus(-1)
+				m = m.setFocus(prev)
+				return m, nil
+			case "right":
+				next := m.cycleFocus(+1)
+				m = m.setFocus(next)
+				return m, nil
+			}
+		}
 		// Alt+1..4: direct pane jump
 		key := msg.String()
 		if strings.HasPrefix(key, "alt+") && len(key) == 5 {
@@ -1051,8 +1081,7 @@ func (m Model) toolbarShortcuts() []ui.Shortcut {
 		{Key: "Ctrl+S", Description: "Save"},
 		{Key: "Ctrl+P", Description: "Preview"},
 		{Key: "Ctrl+K", Description: "Palette"},
-		{Key: "Alt+5/6/7", Description: "Tabs"},
-		{Key: "F6", Description: "Focus"},
+		{Key: "Ctrl+Shift+←→", Description: "Panes"},
 		{Key: "Ctrl+Q", Description: "Quit"},
 	}
 }
@@ -1327,4 +1356,20 @@ func (m *Model) LoadFileForTest(path string) {
 	m.recent.Add(path)
 	m.backlinksFor = ""
 	m.refreshBacklinks()
+}
+
+// FocusForTest returns the current focus (used by tests).
+func (m Model) FocusForTest() string {
+	return m.focus
+}
+
+// CycleFocusForTest returns the next/prev focus name without applying it.
+func (m Model) CycleFocusForTest(direction int) string {
+	return m.cycleFocus(direction)
+}
+
+// SetFocusForTest applies a focus name (used by tests).
+func (m *Model) SetFocusForTest(name string) {
+	m2 := m.setFocus(name)
+	m.focus = m2.focus
 }

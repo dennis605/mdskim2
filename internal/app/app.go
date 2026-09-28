@@ -219,6 +219,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.findInFilesResults = nil
 		m.findInFilesIdx = 0
 		return m, nil
+	case RecentTriggerMsg:
+		m.recentMenuMode = true
+		m.recentMenuIdx = 0
+		return m, nil
 	}
 	return m, nil
 }
@@ -229,6 +233,9 @@ type DailyNoteTriggerMsg struct{}
 
 // FindInFilesTriggerMsg ist ein Test-Hook für Ctrl+Shift+F.
 type FindInFilesTriggerMsg struct{}
+
+// RecentTriggerMsg ist ein Test-Hook für Ctrl+Shift+O.
+type RecentTriggerMsg struct{}
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// U8: Prompt-Mode für Tree-File-Operations hat Vorrang
@@ -308,6 +315,35 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case tea.KeyRunes:
 			m.wikiLinkQuery += string(msg.Runes)
 			m.refreshWikiLinkMatches()
+			return m, nil
+		}
+	}
+
+	// U9.3: Recent-Files-Modal-Interceptor
+	if m.recentMenuMode {
+		files := m.recentFilesList()
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.recentMenuMode = false
+			return m, nil
+		case tea.KeyEnter:
+			if m.recentMenuIdx < len(files) {
+				m.recentMenuMode = false
+				m.openRecentFile(files[m.recentMenuIdx].Path)
+			}
+			return m, nil
+		case tea.KeyUp:
+			if m.recentMenuIdx > 0 {
+				m.recentMenuIdx--
+			}
+			return m, nil
+		case tea.KeyDown:
+			if m.recentMenuIdx < len(files)-1 {
+				m.recentMenuIdx++
+			}
+			return m, nil
+		case tea.KeyRunes:
+			// Optionaler Filter-Modus: aktuell nicht implementiert (Esc zum Schließen)
 			return m, nil
 		}
 	}
@@ -1015,7 +1051,63 @@ func (m Model) View() string {
 		result = m.renderFindInFilesOverlay(result)
 	}
 
+	// U9.3: Recent-Files Modal-Overlay
+	if m.recentMenuMode {
+		result = m.renderRecentMenuOverlay(result)
+	}
+
 	return result
+}
+
+// renderRecentMenuOverlay rendert das Recent-Files-Menü über dem Hauptview.
+func (m Model) renderRecentMenuOverlay(base string) string {
+	files := m.recentFilesList()
+	var lines []string
+	lines = append(lines, "\x1b[1;37m\x1b[48;5;63m  Recent Files  \x1b[0m")
+	if len(files) == 0 {
+		lines = append(lines, "\x1b[2m  No recent files yet\x1b[0m")
+	} else {
+		max := 10
+		if len(files) < max {
+			max = len(files)
+		}
+		start := 0
+		if m.recentMenuIdx >= max {
+			start = m.recentMenuIdx - max + 1
+		}
+		for i := start; i < start+max; i++ {
+			f := files[i]
+			marker := "  "
+			if i == m.recentMenuIdx {
+				marker = "\x1b[48;5;220m▶ \x1b[0m"
+			}
+			when := time.Unix(f.When, 0).Format("15:04:05")
+			name := f.Display
+			if name == "" {
+				name = filepath.Base(f.Path)
+			}
+			if len(name) > 40 {
+				name = name[:40] + "…"
+			}
+			lines = append(lines, fmt.Sprintf("%s\x1b[36m%s\x1b[0m  \x1b[33m%s\x1b[0m", marker, name, when))
+		}
+	}
+	lines = append(lines, "\x1b[2m  ↑↓ Navigate · Enter Open · Esc Close\x1b[0m")
+	modal := strings.Join(lines, "\n")
+
+	baseLines := strings.Split(base, "\n")
+	modalLines := strings.Split(modal, "\n")
+	start := (len(baseLines) - len(modalLines)) / 2
+	if start < 0 {
+		start = 0
+	}
+	for i, ml := range modalLines {
+		if start+i < len(baseLines) {
+			padded := ml + strings.Repeat(" ", 80-len(stripANSI(ml)))
+			baseLines[start+i] = "\x1b[K" + padded
+		}
+	}
+	return strings.Join(baseLines, "\n")
 }
 
 // renderFindInFilesOverlay rendert ein Modal über dem Hauptview mit der aktuellen
@@ -2336,3 +2428,33 @@ func (m Model) FindInFilesQueryForTest() string { return m.findInFilesQuery }
 
 // FindInFilesResultsForTest exposes m.findInFilesResults.
 func (m Model) FindInFilesResultsForTest() []grep.Hit { return m.findInFilesResults }
+
+// recentFilesList gibt eine Kopie der Recent-Liste zurück (MRU-sorted).
+func (m Model) recentFilesList() []recent.File {
+	if m.recent == nil {
+		return nil
+	}
+	return m.recent.All()
+}
+
+// openRecentFile öffnet eine Datei aus der Recent-Liste und fügt sie oben hinzu.
+func (m *Model) openRecentFile(path string) {
+	if m.workspace == nil {
+		return
+	}
+	idx := m.findTreeIdxByPath(path)
+	if idx >= 0 {
+		m.cursorIdx = idx
+		updated, cmd := m.selectCurrent()
+		if mm, ok := updated.(Model); ok {
+			*m = mm
+			_ = cmd
+		}
+	}
+}
+
+// RecentMenuModeForTest exposes m.recentMenuMode.
+func (m Model) RecentMenuModeForTest() bool { return m.recentMenuMode }
+
+// RecentMenuIdxForTest exposes m.recentMenuIdx.
+func (m Model) RecentMenuIdxForTest() int { return m.recentMenuIdx }

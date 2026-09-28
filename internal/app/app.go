@@ -23,6 +23,7 @@ import (
 	"github.com/dennis605/mdskim2/internal/tabs"
 	"github.com/dennis605/mdskim2/internal/ui"
 	"github.com/dennis605/mdskim2/internal/workspace"
+	"regexp"
 	"sort"
 )
 
@@ -224,6 +225,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.recentMenuMode = true
 		m.recentMenuIdx = 0
 		return m, nil
+	case TaskToggleTriggerMsg:
+		m.toggleCurrentTaskLine()
+		return m, nil
 	}
 	return m, nil
 }
@@ -237,6 +241,9 @@ type FindInFilesTriggerMsg struct{}
 
 // RecentTriggerMsg ist ein Test-Hook für Ctrl+Shift+O.
 type RecentTriggerMsg struct{}
+
+// TaskToggleTriggerMsg ist ein Test-Hook für Ctrl+Enter (Task-List-Toggle).
+type TaskToggleTriggerMsg struct{}
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// U8: Prompt-Mode für Tree-File-Operations hat Vorrang
@@ -643,6 +650,12 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.cursorIdx = len(m.flatList) - 1
 				m.autoOpenAtCursor()
 			}
+		}
+		return m, nil
+	case tea.KeyCtrlJ:
+		// U9.5: Ctrl+Enter (LF) — Task-List-Toggle falls Cursor auf Task-Zeile
+		if m.focus == "editor" && m.buffer != nil {
+			m.toggleCurrentTaskLine()
 		}
 		return m, nil
 	case tea.KeyEnter:
@@ -2540,4 +2553,43 @@ func (m Model) renderTagsTab() string {
 // TagsTabTextForTest exposes the Tags tab render output for tests.
 func (m Model) TagsTabTextForTest() string {
 	return m.renderTagsTab()
+}
+
+// toggleCurrentTaskLine toggelt eine Markdown-Task-Liste-Zeile an der aktuellen
+// Cursor-Position: "- [ ] foo" ↔ "- [x] foo". Nicht-Task-Zeilen bleiben unverändert.
+func (m *Model) toggleCurrentTaskLine() {
+	if m.buffer == nil {
+		return
+	}
+	if m.buffer.CursorRow < 0 || m.buffer.CursorRow >= len(m.buffer.Lines) {
+		return
+	}
+	line := m.buffer.Lines[m.buffer.CursorRow]
+	// Patterns: "- [ ] foo" / "- [x] foo" / "* [ ] foo" / "+ [ ] foo"
+	taskRe := regexp.MustCompile(`^(\s*)([-*+]) \[([ xX])\]`)
+	matches := taskRe.FindStringSubmatchIndex(line)
+	if matches == nil {
+		return
+	}
+	// groups: 1=indent, 2=list-marker, 3=bracket-char (space/x/X)
+	// matches[6]:7 = group3 (bracket char) start/end
+	start, end := matches[6], matches[7]
+	if start < 0 || end < 0 || end > len(line) {
+		return
+	}
+	runes := []rune(line)
+	if start >= len(runes) {
+		return
+	}
+	currentChar := runes[start]
+	var newChar rune
+	if currentChar == ' ' {
+		newChar = 'x'
+	} else {
+		newChar = ' '
+	}
+	runes[start] = newChar
+	newLine := string(runes)
+	m.buffer.Lines[m.buffer.CursorRow] = newLine
+	m.buffer.Modified = true
 }

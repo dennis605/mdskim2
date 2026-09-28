@@ -226,6 +226,30 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// U8.3: Tree-Filter-Mode — Esc leert, Backspace kürzt, Runes ergänzen, Enter akzeptiert
+	if m.treeFiltered {
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.treeFiltered = false
+			m.treeFilter = ""
+			m.applyTreeFilter()
+			return m, nil
+		case tea.KeyBackspace:
+			if len(m.treeFilter) > 0 {
+				m.treeFilter = m.treeFilter[:len(m.treeFilter)-1]
+				m.applyTreeFilter()
+			}
+			return m, nil
+		case tea.KeyEnter:
+			m.treeFiltered = false
+			return m, nil
+		case tea.KeyRunes:
+			m.treeFilter += string(msg.Runes)
+			m.applyTreeFilter()
+			return m, nil
+		}
+	}
+
 	switch msg.Type {
 	case tea.KeyCtrlQ:
 		m.quitting = true
@@ -577,8 +601,14 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.promptMode = "rename"
 				m.promptQuery = ""
 				return m, nil
+			case "/":
+				m.treeFiltered = true
+				m.treeFilter = ""
+				m.applyTreeFilter()
+				return m, nil
 			}
 		}
+
 		// Shift+F6: cycle focus backward
 		if msg.String() == "shift+f6" {
 			prev := m.cycleFocus(-1)
@@ -888,6 +918,14 @@ func (m Model) renderSidebar() string {
 	}
 	var lines []string
 	lines = append(lines, headerMark)
+	// U8.3: Tree-Filter-Input-Zeile (wenn aktiv)
+	if m.treeFiltered {
+		filterLine := "\x1b[48;5;220m\x1b[30m /" + m.treeFilter + "_ \x1b[0m"
+		if len(m.treeFilter) == 0 {
+			filterLine = "\x1b[48;5;220m\x1b[30m /_ \x1b[0m"
+		}
+		lines = append(lines, filterLine)
+	}
 	for i, node := range m.flatList {
 		cn := *node
 		cn.Name = truncate(node.Name)
@@ -1643,6 +1681,46 @@ func clampOffset(target, current, viewportH int) int {
 	return current
 }
 
+// applyTreeFilter filtert die flatList anhand von m.treeFilter.
+// Wenn der Filter leer ist, wird die Original-flatList wiederhergestellt.
+func (m *Model) applyTreeFilter() {
+	if !m.treeFiltered || m.workspace == nil {
+		return
+	}
+	if m.treeFilter == "" {
+		m.flatList = m.workspace.FlatList(m.treeRender.CollapsedDirs)
+		if m.cursorIdx >= len(m.flatList) {
+			m.cursorIdx = len(m.flatList) - 1
+		}
+		if m.cursorIdx < 0 {
+			m.cursorIdx = 0
+		}
+		return
+	}
+	orig := m.workspace.FlatList(m.treeRender.CollapsedDirs)
+	filtered := orig[:0]
+	for _, n := range orig {
+		if n.IsDir {
+			// Verzeichnisse immer anzeigen wenn darin ein Match wäre
+			// Vereinfachung: bei leerer Filter-Eingabe alle anzeigen, sonst nur Name-Match
+			if strings.Contains(strings.ToLower(n.Name), strings.ToLower(m.treeFilter)) {
+				filtered = append(filtered, n)
+			}
+		} else {
+			if strings.Contains(strings.ToLower(n.Name), strings.ToLower(m.treeFilter)) {
+				filtered = append(filtered, n)
+			}
+		}
+	}
+	m.flatList = filtered
+	if m.cursorIdx >= len(m.flatList) {
+		m.cursorIdx = len(m.flatList) - 1
+	}
+	if m.cursorIdx < 0 {
+		m.cursorIdx = 0
+	}
+}
+
 // refreshWorkspace lädt den Tree neu aus dem Disk (für F5/Ctrl+R).
 func (m *Model) refreshWorkspace() {
 	if m.workspace == nil {
@@ -1842,3 +1920,9 @@ func (m Model) WorkspaceRootForTest() string {
 	}
 	return ""
 }
+
+// TreeFilteredForTest returns whether tree filter mode is active (used by tests).
+func (m Model) TreeFilteredForTest() bool { return m.treeFiltered }
+
+// TreeFilterForTest returns the current tree filter query (used by tests).
+func (m Model) TreeFilterForTest() string { return m.treeFilter }

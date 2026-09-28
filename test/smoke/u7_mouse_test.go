@@ -128,3 +128,8 @@ func TestU7_ClickOutsideBoundsIsHarmless(t *testing.T) {
 	mm = click(m, 0, 39)
 	_ = mm
 }
+
+func demoDir() string {
+	a, _ := filepath.Abs("../../demo/Test Engineering")
+	return a
+}

@@ -1,7 +1,6 @@
 package smoke
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -9,11 +8,6 @@ import (
 
 	"github.com/dennis605/mdskim2/internal/app"
 )
-
-func demoDir() string {
-	a, _ := filepath.Abs("../../demo/Test Engineering")
-	return a
-}
 
 func openFile() app.Model {
 	m := app.New(demoDir())

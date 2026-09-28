@@ -661,12 +661,51 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if m.buffer != nil {
 			for _, r := range msg.Runes {
-				m.buffer.InsertChar(r)
+				m.applyAutoPair(r)
 			}
 		}
 		return m, nil
 	}
 	return m, nil
+}
+
+// applyAutoPair verarbeitet ein eingetipptes Zeichen und paart es automatisch
+// mit dem passenden Schluss-Zeichen (Cursor landet MITTEN im Paar, kein zweiter
+// Tastendruck nötig). Bei Schluss-Zeichen wird das doppelte Schließen übersprungen,
+// wenn das nächste Zeichen identisch ist.
+func (m Model) applyAutoPair(r rune) {
+	if m.buffer == nil {
+		return
+	}
+	openToClose := map[rune]rune{
+		'(': ')',
+		'[': ']',
+		'{': '}',
+		'"': '"',
+	}
+	if close, ok := openToClose[r]; ok {
+		m.buffer.InsertChar(r)
+		m.buffer.InsertChar(close)
+		// Cursor zwischen die beiden Zeichen setzen
+		if m.buffer.CursorCol > 0 {
+			m.buffer.CursorCol--
+		}
+		return
+	}
+	// Schluss-Zeichen: nächstes Zeichen prüfen, ggf. überspringen
+	closing := []rune{')', ']', '}', '"'}
+	for _, c := range closing {
+		if r == c {
+			line := m.buffer.Lines[m.buffer.CursorRow]
+			runes := []rune(line)
+			if m.buffer.CursorCol < len(runes) && runes[m.buffer.CursorCol] == c {
+				m.buffer.CursorCol++
+				return
+			}
+			break
+		}
+	}
+	m.buffer.InsertChar(r)
 }
 
 func (m Model) saveBuffer() (tea.Model, tea.Cmd) {

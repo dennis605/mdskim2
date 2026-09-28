@@ -311,6 +311,25 @@ func (b *Buffer) DeleteLine() {
 	b.SnapshotHistory()
 }
 
+// SetLine ersetzt den Inhalt der angegebenen Zeile komplett.
+// Validiert Row-Bounds, setzt Modified und erstellt ein History-Snapshot
+// (für Undo/Redo). Wenn die Row außerhalb des Bereichs liegt, no-op.
+// Cursor-Position bleibt unverändert.
+// Diese Methode ist der einzig empfohlene Weg, eine Zeile von außen
+// zu ersetzen — direkte m.buffer.Lines[row] = … Mutationen aus dem
+// app-Layer umgehen Undo/Redo und Modified-Tracking.
+func (b *Buffer) SetLine(row int, content string) {
+	if row < 0 || row >= len(b.Lines) {
+		return
+	}
+	if b.Lines[row] == content {
+		return
+	}
+	b.Lines[row] = content
+	b.Modified = true
+	b.SnapshotHistory()
+}
+
 // ToString serialisiert den Buffer zurück zu einem String.
 func (b *Buffer) ToString() string {
 	return strings.Join(b.Lines, "\n")

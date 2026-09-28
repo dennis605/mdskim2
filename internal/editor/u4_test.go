@@ -43,3 +43,56 @@ func TestSavePreservesLineEnding(t *testing.T) {
 		t.Errorf("ToString should not contain CR (that's Save's job), got %q", out)
 	}
 }
+
+func TestBufferSetLine(t *testing.T) {
+	b := &Buffer{Lines: []string{"alpha", "beta", "gamma"}, CursorRow: 1, CursorCol: 0}
+	b.SetLine(1, "BETA")
+	if b.Lines[1] != "BETA" {
+		t.Fatalf("expected BETA, got %q", b.Lines[1])
+	}
+	if !b.Modified {
+		t.Fatal("expected Modified=true after SetLine")
+	}
+	if b.CursorRow != 1 || b.CursorCol != 0 {
+		t.Fatalf("cursor should not move, got (%d,%d)", b.CursorRow, b.CursorCol)
+	}
+}
+
+func TestBufferSetLineBounds(t *testing.T) {
+	b := &Buffer{Lines: []string{"a", "b"}, CursorRow: 0, CursorCol: 0}
+	b.SetLine(-1, "x")
+	b.SetLine(99, "y")
+	if b.Lines[0] != "a" || b.Lines[1] != "b" {
+		t.Fatalf("out-of-bounds SetLine should be no-op, got %v", b.Lines)
+	}
+	if b.Modified {
+		t.Fatal("out-of-bounds SetLine must not mark Modified")
+	}
+}
+
+func TestBufferSetLineIdempotent(t *testing.T) {
+	b := &Buffer{Lines: []string{"a"}, CursorRow: 0, CursorCol: 0}
+	b.Modified = false
+	b.SetLine(0, "a")
+	if b.Modified {
+		t.Fatal("setting same content should not mark Modified")
+	}
+}
+
+func TestBufferSetLineUndo(t *testing.T) {
+	// Use NewEmpty so History[0] is populated; then SetLine pushes History[1].
+	b := NewEmpty()
+	b.Lines = []string{"foo"}
+	b.History = [][]string{{"foo"}}
+	b.HistoryIdx = 0
+	b.CursorRow = 0
+	b.CursorCol = 0
+	b.SetLine(0, "bar")
+	if b.Lines[0] != "bar" {
+		t.Fatalf("expected bar, got %q", b.Lines[0])
+	}
+	b.Undo()
+	if b.Lines[0] != "foo" {
+		t.Fatalf("after undo expected foo, got %q", b.Lines[0])
+	}
+}

@@ -2590,6 +2590,7 @@ func (m *Model) toggleCurrentTaskLine() {
 	}
 	runes[start] = newChar
 	newLine := string(runes)
-	m.buffer.Lines[m.buffer.CursorRow] = newLine
-	m.buffer.Modified = true
+	// Use Buffer method (sets Modified + snapshots for undo/redo)
+	// instead of direct Lines[row] mutation.
+	m.buffer.SetLine(m.buffer.CursorRow, newLine)
 }

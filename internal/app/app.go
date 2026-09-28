@@ -114,6 +114,7 @@ type Model struct {
 	findInFilesMode    bool
 	findInFilesQuery   string
 	findInFilesResults []grep.Hit
+	findInFilesIdx     int
 	recentMenuMode     bool
 	recentMenuIdx      int
 }
@@ -212,6 +213,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleMouse(msg)
 	case DailyNoteTriggerMsg:
 		return m.openOrCreateDailyNote()
+	case FindInFilesTriggerMsg:
+		m.findInFilesMode = true
+		m.findInFilesQuery = ""
+		m.findInFilesResults = nil
+		m.findInFilesIdx = 0
+		return m, nil
 	}
 	return m, nil
 }
@@ -219,6 +226,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // DailyNoteTriggerMsg ist ein Test-Hook, der Ctrl+Shift+D auslöst ohne
 // den Umweg über tea.KeyMsg. Wird nur in Tests verwendet.
 type DailyNoteTriggerMsg struct{}
+
+// FindInFilesTriggerMsg ist ein Test-Hook für Ctrl+Shift+F.
+type FindInFilesTriggerMsg struct{}
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// U8: Prompt-Mode für Tree-File-Operations hat Vorrang
@@ -298,6 +308,45 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case tea.KeyRunes:
 			m.wikiLinkQuery += string(msg.Runes)
 			m.refreshWikiLinkMatches()
+			return m, nil
+		}
+	}
+
+	// U9.2: Find-in-Files-Modal-Interceptor
+	if m.findInFilesMode {
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.findInFilesMode = false
+			m.findInFilesQuery = ""
+			m.findInFilesResults = nil
+			return m, nil
+		case tea.KeyEnter:
+			if m.findInFilesIdx < len(m.findInFilesResults) {
+				hit := m.findInFilesResults[m.findInFilesIdx]
+				m.findInFilesMode = false
+				m.findInFilesQuery = ""
+				m.openGrepHit(hit)
+			}
+			return m, nil
+		case tea.KeyUp:
+			if m.findInFilesIdx > 0 {
+				m.findInFilesIdx--
+			}
+			return m, nil
+		case tea.KeyDown:
+			if m.findInFilesIdx < len(m.findInFilesResults)-1 {
+				m.findInFilesIdx++
+			}
+			return m, nil
+		case tea.KeyBackspace:
+			if len(m.findInFilesQuery) > 0 {
+				m.findInFilesQuery = m.findInFilesQuery[:len(m.findInFilesQuery)-1]
+				m.runFindInFiles()
+			}
+			return m, nil
+		case tea.KeyRunes:
+			m.findInFilesQuery += string(msg.Runes)
+			m.runFindInFiles()
 			return m, nil
 		}
 	}
@@ -959,7 +1008,120 @@ func (m Model) View() string {
 		parts = append(parts, promptBar)
 	}
 	parts = append(parts, footer)
-	return strings.Join(parts, "\n")
+	result := strings.Join(parts, "\n")
+
+	// U9.2: Find-in-Files Modal-Overlay
+	if m.findInFilesMode {
+		result = m.renderFindInFilesOverlay(result)
+	}
+
+	return result
+}
+
+// renderFindInFilesOverlay rendert ein Modal über dem Hauptview mit der aktuellen
+// Query und den Resultaten (Treffer-Liste).
+func (m Model) renderFindInFilesOverlay(base string) string {
+	var lines []string
+	lines = append(lines, "\x1b[1;37m\x1b[48;5;63m  Find in Files: "+m.findInFilesQuery+"█  \x1b[0m")
+	if m.findInFilesQuery == "" {
+		lines = append(lines, "\x1b[2m  Type to search...  (Esc to cancel)\x1b[0m")
+	} else if len(m.findInFilesResults) == 0 {
+		lines = append(lines, "\x1b[2m  No matches\x1b[0m")
+	} else {
+		lines = append(lines, "\x1b[2m  "+itoa(len(m.findInFilesResults))+" matches:\x1b[0m")
+		max := 8
+		if len(m.findInFilesResults) < max {
+			max = len(m.findInFilesResults)
+		}
+		start := 0
+		if m.findInFilesIdx >= max {
+			start = m.findInFilesIdx - max + 1
+		}
+		for i := start; i < start+max; i++ {
+			hit := m.findInFilesResults[i]
+			marker := "  "
+			if i == m.findInFilesIdx {
+				marker = "\x1b[48;5;220m▶ \x1b[0m"
+			}
+			rel, _ := filepath.Rel(m.workspace.RootPath, hit.Path)
+			if rel == "" {
+				rel = hit.Path
+			}
+			match := strings.TrimSpace(hit.Match)
+			if len(match) > 50 {
+				match = match[:50] + "…"
+			}
+			lines = append(lines, fmt.Sprintf("%s\x1b[36m%s\x1b[0m:\x1b[33m%d\x1b[0m: %s", marker, rel, hit.Line+1, match))
+		}
+	}
+	modal := strings.Join(lines, "\n")
+	// Replace base's middle section with modal
+	baseLines := strings.Split(base, "\n")
+	modalLines := strings.Split(modal, "\n")
+	start := (len(baseLines) - len(modalLines)) / 2
+	if start < 0 {
+		start = 0
+	}
+	for i, ml := range modalLines {
+		if start+i < len(baseLines) {
+			// Pad to 80 chars
+			padded := ml + strings.Repeat(" ", maxLen([]string{baseLines[start+i]}, 80)-len(stripANSI(ml)))
+			baseLines[start+i] = "\x1b[K" + padded
+		}
+	}
+	return strings.Join(baseLines, "\n")
+}
+
+// itoa ist ein Mini-Wrapper (fmt.Sprintf("%d", ...) ist zu teuer).
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	neg := n < 0
+	if neg {
+		n = -n
+	}
+	var digits []byte
+	for n > 0 {
+		digits = append([]byte{byte('0' + n%10)}, digits...)
+		n /= 10
+	}
+	if neg {
+		digits = append([]byte{'-'}, digits...)
+	}
+	return string(digits)
+}
+
+// maxLen returns the max of len(stripANSI(s)) over all strings in arr.
+func maxLen(arr []string, fallback int) int {
+	m := fallback
+	for _, s := range arr {
+		l := len(stripANSI(s))
+		if l > m {
+			m = l
+		}
+	}
+	return m
+}
+
+// stripANSI entfernt ANSI-Escape-Sequenzen aus s (für Längen-Berechnung).
+func stripANSI(s string) string {
+	var out []byte
+	inEsc := false
+	for i := 0; i < len(s); i++ {
+		if inEsc {
+			if s[i] >= 0x40 && s[i] <= 0x7e {
+				inEsc = false
+			}
+			continue
+		}
+		if s[i] == 0x1b {
+			inEsc = true
+			continue
+		}
+		out = append(out, s[i])
+	}
+	return string(out)
 }
 
 func (m Model) renderSidebar() string {
@@ -2128,3 +2290,49 @@ func (m *Model) openOrCreateDailyNote() (tea.Model, tea.Cmd) {
 	}
 	return *m, nil
 }
+
+// runFindInFiles führt grep.Search() im Workspace aus und aktualisiert die Results.
+func (m *Model) runFindInFiles() {
+	m.findInFilesResults = nil
+	if m.workspace == nil || m.findInFilesQuery == "" {
+		return
+	}
+	m.findInFilesResults = grep.Search(m.workspace.RootPath, m.findInFilesQuery)
+	if m.findInFilesIdx >= len(m.findInFilesResults) {
+		m.findInFilesIdx = 0
+	}
+}
+
+// openGrepHit öffnet die Datei eines grep-Treffers und positioniert den Cursor auf der Zeile.
+func (m *Model) openGrepHit(hit grep.Hit) {
+	if m.workspace == nil {
+		return
+	}
+	idx := m.findTreeIdxByPath(hit.Path)
+	if idx < 0 {
+		return
+	}
+	m.cursorIdx = idx
+	updated, cmd := m.selectCurrent()
+	mm, ok := updated.(Model)
+	if !ok {
+		_ = cmd
+		return
+	}
+	if mm.buffer != nil {
+		if hit.Line < len(mm.buffer.Lines) {
+			mm.buffer.CursorRow = hit.Line
+			mm.buffer.CursorCol = 0
+		}
+	}
+	*m = mm
+}
+
+// FindInFilesModeForTest exposes m.findInFilesMode.
+func (m Model) FindInFilesModeForTest() bool { return m.findInFilesMode }
+
+// FindInFilesQueryForTest exposes m.findInFilesQuery.
+func (m Model) FindInFilesQueryForTest() string { return m.findInFilesQuery }
+
+// FindInFilesResultsForTest exposes m.findInFilesResults.
+func (m Model) FindInFilesResultsForTest() []grep.Hit { return m.findInFilesResults }

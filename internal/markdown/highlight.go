@@ -110,7 +110,49 @@ func highlightInline(s string) string {
 	linkRe := regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
 	s = linkRe.ReplaceAllString(s, "\x1b[4;36m$1\x1b[0m (\x1b[2;36m$2\x1b[0m)")
 
+	// Tags: #word im Text (nicht am Zeilenanfang, der ist Heading).
+	tagRe := regexp.MustCompile(`(^|\s)(#[\w][\w\-]*)`)
+	s = tagRe.ReplaceAllString(s, `${1}`+"\x1b[38;5;141m${2}\x1b[0m")
+
 	return s
+}
+
+// Tag repräsentiert ein Markdown-Tag (#word).
+type Tag struct {
+	Name string
+	Line int
+}
+
+// Tags extrahiert alle Tags aus Markdown-Text (Format: #word, nicht in Code-Fences).
+func Tags(text string) []Tag {
+	var tags []Tag
+	inCode := false
+	for i, line := range strings.Split(text, "\n") {
+		t := strings.TrimRight(line, " \t\r")
+		if strings.HasPrefix(t, "\x60\x60\x60") {
+			inCode = !inCode
+			continue
+		}
+		if inCode {
+			continue
+		}
+		re := regexp.MustCompile(`(^|\s)(#[\w][\w\-]*)`)
+		matches := re.FindAllStringSubmatch(t, -1)
+		for _, m := range matches {
+			tag := m[2]
+			seen := false
+			for _, existing := range tags {
+				if existing.Name == tag && existing.Line == i {
+					seen = true
+					break
+				}
+			}
+			if !seen {
+				tags = append(tags, Tag{Name: tag, Line: i})
+			}
+		}
+	}
+	return tags
 }
 
 // HighlightLines iteriert über alle Zeilen und rendert jede mit CurrentLine-Marker + Cursor.

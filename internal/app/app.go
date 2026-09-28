@@ -23,6 +23,7 @@ import (
 	"github.com/dennis605/mdskim2/internal/tabs"
 	"github.com/dennis605/mdskim2/internal/ui"
 	"github.com/dennis605/mdskim2/internal/workspace"
+	"sort"
 )
 
 type Model struct {
@@ -807,7 +808,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 			// U6: Alt+5/6/7 = right-pane tab switch (Preview | TOC | Backlinks)
-			if digit >= '5' && digit <= '7' {
+			// U9.4: Alt+8 = Tags tab
+			if digit >= '5' && digit <= '8' {
 				m.rightTab = int(digit - '5')
 				m.focus = "toc"
 				return m, nil
@@ -1004,7 +1006,7 @@ func (m Model) View() string {
 	editor := m.layout.Editor(editorContent, m.theme, m.focus == "editor" || m.focus == "preview")
 
 	// Right pane tabs: Preview | TOC | Backlinks (U6 — Python-mdskim look)
-	tabLabels := []string{"Preview", "TOC", "Backlinks"}
+	tabLabels := []string{"Preview", "TOC", "Backlinks", "Tags"}
 	tabContents := []string{
 		m.renderPreviewTab(),
 		m.renderTOC(),
@@ -1800,13 +1802,13 @@ func (m Model) RightTab() int {
 	return m.rightTab
 }
 
-// SetRightTab sets the right-pane tab index (0=Preview, 1=TOC, 2=Backlinks).
+// SetRightTab sets the right-pane tab index (0=Preview, 1=TOC, 2=Backlinks, 3=Tags).
 func (m *Model) SetRightTab(idx int) {
 	if idx < 0 {
 		idx = 0
 	}
-	if idx > 2 {
-		idx = 2
+	if idx > 3 {
+		idx = 3
 	}
 	m.rightTab = idx
 	m.focus = "toc"
@@ -1976,6 +1978,42 @@ func (m Model) handleRightPaneClick(innerX, innerY int) (tea.Model, tea.Cmd) {
 		if idx >= 0 {
 			m.cursorIdx = idx
 			return m.selectCurrent()
+		}
+		return m, nil
+	case 3:
+		// Tags tab — click on tag jumps editor to first occurrence
+		// renderTagsTab: row 0 = title, row 1 = separator, rows 2..N = tag entries
+		if m.buffer == nil {
+			return m, nil
+		}
+		tags := markdown.Tags(m.buffer.ToString())
+		counts := map[string]int{}
+		for _, t := range tags {
+			counts[t.Name]++
+		}
+		type kv struct {
+			name string
+			line int
+		}
+		var kvs []kv
+		seen := map[string]bool{}
+		for _, t := range tags {
+			if seen[t.Name] {
+				continue
+			}
+			seen[t.Name] = true
+			kvs = append(kvs, kv{t.Name, t.Line})
+		}
+		tagIdx := contentRow - 2
+		if tagIdx < 0 || tagIdx >= len(kvs) {
+			return m, nil
+		}
+		if kvs[tagIdx].line < len(m.buffer.Lines) {
+			m.buffer.CursorRow = kvs[tagIdx].line
+			m.buffer.CursorCol = 0
+			h := m.editorViewportHeight()
+			m.editorScrollOffset = clampOffset(kvs[tagIdx].line-3, m.editorScrollOffset, h)
+			m.focus = "editor"
 		}
 		return m, nil
 	}
@@ -2458,3 +2496,48 @@ func (m Model) RecentMenuModeForTest() bool { return m.recentMenuMode }
 
 // RecentMenuIdxForTest exposes m.recentMenuIdx.
 func (m Model) RecentMenuIdxForTest() int { return m.recentMenuIdx }
+
+// renderTagsTab rendert alle Tags aus dem aktuellen Buffer mit Vorkommen-Anzahl.
+func (m Model) renderTagsTab() string {
+	if m.buffer == nil || m.buffer.Path == "" {
+		return "(keine Datei geöffnet)"
+	}
+	tags := markdown.Tags(m.buffer.ToString())
+	if len(tags) == 0 {
+		return "TAGS\n────\nKeine Tags in dieser Datei.\nTipp: #word im Text schreiben."
+	}
+	// Zähle Vorkommen je Tag
+	counts := map[string]int{}
+	lines := map[string][]int{}
+	for _, t := range tags {
+		counts[t.Name]++
+		lines[t.Name] = append(lines[t.Name], t.Line+1)
+	}
+	// Sortiere nach Häufigkeit (absteigend)
+	type kv struct {
+		name  string
+		count int
+		first int
+	}
+	var kvs []kv
+	for n, c := range counts {
+		kvs = append(kvs, kv{n, c, lines[n][0]})
+	}
+	sort.Slice(kvs, func(i, j int) bool {
+		if kvs[i].count != kvs[j].count {
+			return kvs[i].count > kvs[j].count
+		}
+		return kvs[i].name < kvs[j].name
+	})
+	out := []string{fmt.Sprintf("TAGS (%d unique, %d total)", len(kvs), len(tags))}
+	out = append(out, "─────────────────────────")
+	for _, k := range kvs {
+		out = append(out, fmt.Sprintf("  \x1b[38;5;141m%s\x1b[0m  %dx  \x1b[2m(line %d)\x1b[0m", k.name, k.count, k.first))
+	}
+	return strings.Join(out, "\n")
+}
+
+// TagsTabTextForTest exposes the Tags tab render output for tests.
+func (m Model) TagsTabTextForTest() string {
+	return m.renderTagsTab()
+}

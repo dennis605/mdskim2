@@ -1,9 +1,9 @@
                                             mdskim2 — /tmp/sample-workspace                                             
     mdskim  ·  Ctrl+O Open  ·  Ctrl+S Save  ·  Ctrl+P Preview  ·  Ctrl+K Palette  ·  Ctrl+Shift+←→ Panes  ·  Ctrl+Q Quit
 [48;5;63m[1;37m FILES [0m                 [1;36m[NO-BUFFER][0m [1;37m# Willkommen bei mdskim2[0m                             Preview   TOC   Backlinks      
-[1;33m[0m [7m▾ sample-worksp…[0m                                                                       ──────────────────────────────  
-(leer)                  [33m↑↓[0m navigiert Tree und lädt Datei automatisch                    (keine Datei geöffnet)          
-[2m ↑↓ Navig · Enter[m       [33mEnter[0m wechselt in den Editor                                                                    
+[1;33m[0m [7m▾ sample-worksp…[0m                                                                       Tags                            
+(leer)                  [33m↑↓[0m navigiert Tree und lädt Datei automatisch                    ──────────────────────────────  
+[2m ↑↓ Navig · Enter[m       [33mEnter[0m wechselt in den Editor                                    (keine Datei geöffnet)          
 [2mTree→Edit [0m              [33mEsc[0m zurück zum Tree                                                                             
                         [33mCtrl+S[0m Speichern, [33mCtrl+Q[0m Beenden                                                                
                                                                                                                         

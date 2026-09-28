@@ -20,6 +20,9 @@ const (
 	ItalicAction
 	NewFileAction
 	CloseTabAction
+	DailyNoteAction
+	FindInFilesAction
+	RecentFilesAction
 )
 
 // KeyMapping ordnet spezifische Taste-Notationen einer Action zu.
@@ -60,5 +63,10 @@ func AllShortcuts() []KeyMapping {
 
 		// R9 (Command Palette, Workspace-Suche)
 		{Key: "ctrl+shift+p", HelpText: "Commands", Action: CommandPaletteAction, Implemented: false},
+
+		// U9 (Discoverability — Obsidian-style)
+		{Key: "ctrl+shift+d", HelpText: "Daily Note", Action: DailyNoteAction, Implemented: true},
+		{Key: "ctrl+shift+f", HelpText: "Find in Files", Action: FindInFilesAction, Implemented: true},
+		{Key: "ctrl+shift+o", HelpText: "Recent Files", Action: RecentFilesAction, Implemented: true},
 	}
 }

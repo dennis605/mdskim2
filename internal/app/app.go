@@ -109,6 +109,13 @@ type Model struct {
 	wikiLinkQuery   string
 	wikiLinkMatches []string
 	wikiLinkIdx     int
+
+	// U9: Discoverability (Obsidian-style)
+	findInFilesMode    bool
+	findInFilesQuery   string
+	findInFilesResults []grep.Hit
+	recentMenuMode     bool
+	recentMenuIdx      int
 }
 
 func New(workspacePath string) Model {
@@ -203,9 +210,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKey(msg)
 	case tea.MouseMsg:
 		return m.handleMouse(msg)
+	case DailyNoteTriggerMsg:
+		return m.openOrCreateDailyNote()
 	}
 	return m, nil
 }
+
+// DailyNoteTriggerMsg ist ein Test-Hook, der Ctrl+Shift+D auslöst ohne
+// den Umweg über tea.KeyMsg. Wird nur in Tests verwendet.
+type DailyNoteTriggerMsg struct{}
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// U8: Prompt-Mode für Tree-File-Operations hat Vorrang
@@ -655,10 +668,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		// U6.1: Ctrl+Shift+Arrow keys for pane navigation
-		//   ctrl+shift+up    → first pane (Tree)
-		//   ctrl+shift+down  → last pane (Right/TOC)
-		//   ctrl+shift+left  → previous pane
-		//   ctrl+shift+right → next pane
+		// U9: Ctrl+Shift+D (Daily Note), Ctrl+Shift+F (Find in Files), Ctrl+Shift+O (Recent)
 		arrowKey := msg.String()
 		if strings.HasPrefix(arrowKey, "ctrl+shift+") {
 			switch strings.TrimPrefix(arrowKey, "ctrl+shift+") {
@@ -681,6 +691,21 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			case "right":
 				next := m.cycleFocus(+1)
 				m = m.setFocus(next)
+				return m, nil
+			case "d":
+				// U9.1: Daily Note — öffnet oder erstellt <workspace>/Daily Notes/YYYY-MM-DD.md
+				mm, _ := m.openOrCreateDailyNote()
+				return mm, nil
+			case "f":
+				// U9.2: Find in Files — öffnet Workspace-Grep-Modal
+				m.findInFilesMode = true
+				m.findInFilesQuery = ""
+				m.findInFilesResults = nil
+				return m, nil
+			case "o":
+				// U9.3: Recent Files — öffnet Recent-Menü
+				m.recentMenuMode = true
+				m.recentMenuIdx = 0
 				return m, nil
 			}
 		}
@@ -2066,3 +2091,40 @@ func (m Model) WikiLinkPopupForTest() bool { return m.wikiLinkPopup }
 
 // WikiLinkMatchesForTest returns the current wiki-link match list (used by tests).
 func (m Model) WikiLinkMatchesForTest() []string { return m.wikiLinkMatches }
+
+// openOrCreateDailyNote erstellt die Daily-Note für heute, falls sie nicht existiert,
+// und lädt sie in den Editor. Format: <workspace>/Daily Notes/YYYY-MM-DD.md.
+func (m *Model) openOrCreateDailyNote() (tea.Model, tea.Cmd) {
+	if m.workspace == nil {
+		return *m, nil
+	}
+	root := m.workspace.RootPath
+	notesDir := filepath.Join(root, "Daily Notes")
+	if err := os.MkdirAll(notesDir, 0755); err != nil {
+		return *m, nil
+	}
+	today := time.Now().Format("2006-01-02")
+	notePath := filepath.Join(notesDir, today+".md")
+	if _, err := os.Stat(notePath); os.IsNotExist(err) {
+		body := "# " + today + "\n\n"
+		if err := os.WriteFile(notePath, []byte(body), 0644); err != nil {
+			return *m, nil
+		}
+		// Tree neu laden
+		m.refreshWorkspace()
+		// Zur Notiz im Tree navigieren
+		idx := m.findTreeIdxByPath(notePath)
+		if idx >= 0 {
+			m.cursorIdx = idx
+			updated, cmd := m.selectCurrent()
+			return updated.(Model), cmd
+		}
+	}
+	// Wenn schon existiert: Datei einfach laden
+	if idx := m.findTreeIdxByPath(notePath); idx >= 0 {
+		m.cursorIdx = idx
+		updated, cmd := m.selectCurrent()
+		return updated.(Model), cmd
+	}
+	return *m, nil
+}

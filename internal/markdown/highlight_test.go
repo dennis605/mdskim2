@@ -95,7 +95,6 @@ func min(a, b int) int {
 	return b
 }
 
-
 func TestHighlightLinesCurrentLineMarker(t *testing.T) {
 	lines := []string{"# Hello", "World", "**Bold**"}
 	out := HighlightLines(lines, HighlightParams{CurrentLine: 1})

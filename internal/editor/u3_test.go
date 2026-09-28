@@ -48,7 +48,7 @@ func TestSelectionReverse(t *testing.T) {
 func TestDeleteSelectionSingleLine(t *testing.T) {
 	b := NewEmpty()
 	b.Lines = []string{"Hello World"}
-	b.CursorCol = 6 // start at col 6 first, then extend selection
+	b.CursorCol = 6                      // start at col 6 first, then extend selection
 	b.SetCursorWithSelection(0, 0, true) // anchor goes to (0,6)... no
 	// Reset properly: anchor at current cursor (6,0), then extend right to (11,0)
 	b.SelAnchorRow = 0

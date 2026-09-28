@@ -18,9 +18,9 @@ type Tab struct {
 
 // Manager hält alle offenen Tabs und den aktiven Tab.
 type Manager struct {
-	mu      sync.RWMutex
-	all     []*Tab
-	active  int
+	mu     sync.RWMutex
+	all    []*Tab
+	active int
 }
 
 // NewManager erzeugt einen leeren Tab-Manager.

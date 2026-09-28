@@ -85,10 +85,10 @@ func TestUndoVerwerftRedoHistory(t *testing.T) {
 	buf.CursorRow = 0
 	buf.CursorCol = 1
 	buf.SnapshotHistory() // [a] als initial
-	buf.InsertChar('b') // History: [a, ab]
-	buf.InsertChar('c') // History: [a, ab, abc]
-	buf.Undo()          // History: [a, ab], Lines: ab
-	buf.InsertChar('X') // History: [a, ab, abX] — Redo-Pfad verworfen
+	buf.InsertChar('b')   // History: [a, ab]
+	buf.InsertChar('c')   // History: [a, ab, abc]
+	buf.Undo()            // History: [a, ab], Lines: ab
+	buf.InsertChar('X')   // History: [a, ab, abX] — Redo-Pfad verworfen
 	if buf.Lines[0] != "abX" {
 		t.Errorf("erwartet 'abX', got %q", buf.Lines[0])
 	}

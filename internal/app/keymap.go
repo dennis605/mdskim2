@@ -25,9 +25,9 @@ const (
 // KeyMapping ordnet spezifische Taste-Notationen einer Action zu.
 // Wird in späteren Sprints genutzt; R1 hat die Logik in handleKey().
 type KeyMapping struct {
-	Key       string  // z.B. "ctrl+s"
-	HelpText  string  // z.B. "Save"
-	Action    Action
+	Key         string // z.B. "ctrl+s"
+	HelpText    string // z.B. "Save"
+	Action      Action
 	Implemented bool // Sprint-Flag
 }
 

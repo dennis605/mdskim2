@@ -13,7 +13,7 @@ func TestU6_LoadFileShowsPreview(t *testing.T) {
 	m := app.New("demo/Test Engineering")
 	// Load README.md
 	m.LoadFileForTest("demo/Test Engineering/README.md")
-	
+
 	m.SetRightTab(0) // Preview tab
 	snap := m.View()
 	if !strings.Contains(snap, "Preview") {

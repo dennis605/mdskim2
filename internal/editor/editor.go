@@ -45,11 +45,11 @@ func LoadFromFile(path string) (*Buffer, error) {
 	lineEnding := detectLineEnding(content)
 	lines := strings.Split(content, lineEnding)
 	b := &Buffer{
-		Lines:       lines,
-		History:     [][]string{copyLines(lines)},
-		HistoryIdx:  0,
-		HistoryMax:  50,
-		Path:        path,
+		Lines:      lines,
+		History:    [][]string{copyLines(lines)},
+		HistoryIdx: 0,
+		HistoryMax: 50,
+		Path:       path,
 		LineEnding: lineEnding,
 	}
 	return b, nil
@@ -58,10 +58,10 @@ func LoadFromFile(path string) (*Buffer, error) {
 // NewEmpty erzeugt einen leeren Buffer.
 func NewEmpty() *Buffer {
 	return &Buffer{
-		Lines:       []string{""},
-		History:     [][]string{{""}},
-		HistoryIdx:  0,
-		HistoryMax:  50,
+		Lines:        []string{""},
+		History:      [][]string{{""}},
+		HistoryIdx:   0,
+		HistoryMax:   50,
 		SelAnchorRow: -1,
 		SelAnchorCol: -1,
 	}
@@ -340,7 +340,6 @@ type NoPathError struct{}
 func (e *NoPathError) Error() string {
 	return "Buffer hat keinen Pfad"
 }
-
 
 // GoToLine bewegt den Cursor zu einer bestimmten Zeile (1-indexed).
 func (b *Buffer) GoToLine(line1 int) {
@@ -645,9 +644,9 @@ func (b *Buffer) WordRight() {
 			b.CursorCol = c
 			return
 		}
-	b.CursorRow = r
-	b.CursorCol = c
-}
+		b.CursorRow = r
+		b.CursorCol = c
+	}
 }
 
 // isWordSep returns true if rune is whitespace or punctuation.
@@ -742,6 +741,7 @@ func (b *Buffer) LineIndent(row int) string {
 	}
 	return line
 }
+
 // detectLineEnding detects whether content uses CRLF, CR, or LF line endings.
 func detectLineEnding(content string) string {
 	lineEnding := "\n"

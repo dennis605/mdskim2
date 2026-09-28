@@ -5,13 +5,13 @@ import "github.com/charmbracelet/lipgloss"
 // StatusInfo hält den Inhalt für die Status-Bar.
 type StatusInfo struct {
 	Workspace string
-	File      string  // aktuell geöffnete Datei (leer = keine)
-	Lines     int     // Zeilen in aktueller Datei
-	Words     int     // Wörter in aktueller Datei
-	Encoding  string  // UTF-8
-	Modified  bool    // hat ungespeicherte Änderungen
-	Mode      string  // "EDIT" | "PREV" | "SPLIT" | "BOOT"
-	Version   string  // z.B. "R1: Bootstrap"
+	File      string // aktuell geöffnete Datei (leer = keine)
+	Lines     int    // Zeilen in aktueller Datei
+	Words     int    // Wörter in aktueller Datei
+	Encoding  string // UTF-8
+	Modified  bool   // hat ungespeicherte Änderungen
+	Mode      string // "EDIT" | "PREV" | "SPLIT" | "BOOT"
+	Version   string // z.B. "R1: Bootstrap"
 }
 
 // Render erzeugt die Status-Bar-String.

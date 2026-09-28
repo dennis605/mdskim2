@@ -65,9 +65,9 @@ func TestDeleteChar(t *testing.T) {
 
 func TestNewLine(t *testing.T) {
 	buf := &Buffer{
-		Lines:       []string{"abc"},
-		CursorRow:   0,
-		CursorCol:   1,
+		Lines:        []string{"abc"},
+		CursorRow:    0,
+		CursorCol:    1,
 		SelAnchorRow: -1,
 		SelAnchorCol: -1,
 	}

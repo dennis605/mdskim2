@@ -109,7 +109,7 @@ func ReplaceAll(lines []string, pattern, replacement string, opt Options) ([]str
 					result += line[from:matchEnd]
 					from = matchEnd
 					continue
-			}
+				}
 			}
 			result += line[from:matchStart] + replacement
 			count++

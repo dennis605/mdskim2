@@ -113,7 +113,6 @@ func highlightInline(s string) string {
 	return s
 }
 
-
 // HighlightLines iteriert über alle Zeilen und rendert jede mit CurrentLine-Marker + Cursor.
 func HighlightLines(lines []string, p HighlightParams) []string {
 	out := make([]string, len(lines))

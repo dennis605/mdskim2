@@ -3,22 +3,23 @@ package app
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
 	"time"
+	"unicode/utf8"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/atotto/clipboard"
+	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/dennis605/mdskim2/internal/backlinks"
 	"github.com/dennis605/mdskim2/internal/editor"
 	"github.com/dennis605/mdskim2/internal/grep"
 	"github.com/dennis605/mdskim2/internal/markdown"
+	"github.com/dennis605/mdskim2/internal/palette"
 	"github.com/dennis605/mdskim2/internal/preview"
 	"github.com/dennis605/mdskim2/internal/recent"
 	"github.com/dennis605/mdskim2/internal/search"
-	"github.com/dennis605/mdskim2/internal/palette"
 	"github.com/dennis605/mdskim2/internal/tabs"
 	"github.com/dennis605/mdskim2/internal/ui"
 	"github.com/dennis605/mdskim2/internal/workspace"
@@ -36,21 +37,21 @@ type Model struct {
 	flatList   []*workspace.FileNode
 
 	buffer      *editor.Buffer
-		clipboard   string
+	clipboard   string
 	selection   string
 	mode        string
 	currentFile string
 
 	// R6: Search-Modal
-	searchQuery    string
-	searchResults  []search.Match
-	searchIdx      int
-	searchActive   bool
+	searchQuery   string
+	searchResults []search.Match
+	searchIdx     int
+	searchActive  bool
 
 	// R7: Preview-Mode
-	previewMode    bool   // wenn true, zeige Preview statt Editor-Buffer
-	previewSplit   bool   // Split-View (Editor + Preview)
-	previewCache   string // cached preview render
+	previewMode  bool   // wenn true, zeige Preview statt Editor-Buffer
+	previewSplit bool   // Split-View (Editor + Preview)
+	previewCache string // cached preview render
 
 	// R8: Tabs + Quick-Open
 	tabs           *tabs.Manager
@@ -63,12 +64,12 @@ type Model struct {
 	version string
 
 	// R9: Command Palette
-	palette        *palette.Registry
-	paletteActive  bool
-	paletteQuery   string
+	palette       *palette.Registry
+	paletteActive bool
+	paletteQuery  string
 
 	// R10: Workspace-Grep
-	workspaceHits  []grep.Hit
+	workspaceHits []grep.Hit
 
 	saveError string
 
@@ -76,14 +77,14 @@ type Model struct {
 	focus string
 
 	// U3: Editor-Features
-	lineWrap      bool
-	goToLineMode  bool
+	lineWrap           bool
+	goToLineMode       bool
 	editorScrollOffset int
-	goToLineQuery string
+	goToLineQuery      string
 
 	// U4: Editor-Features (Read-Only, Whitespace, Bracket-Match)
 	readOnly       bool
-	whitespaceMark bool  // Ctrl+Shift+W — Zeige Tabs und trailing Spaces
+	whitespaceMark bool // Ctrl+Shift+W — Zeige Tabs und trailing Spaces
 
 	// U4: Persistence
 	recent       *recent.List
@@ -96,6 +97,12 @@ type Model struct {
 	// U6: Backlinks cache
 	backlinksCache []backlinks.Entry
 	backlinksFor   string
+
+	// U8: Tree-based file operations + tree filter
+	promptMode   string // "" | "new-file" | "new-folder" | "rename" | "confirm-delete"
+	promptQuery  string
+	treeFilter   string
+	treeFiltered bool
 }
 
 func New(workspacePath string) Model {
@@ -146,7 +153,16 @@ func New(workspacePath string) Model {
 	}})
 	m.palette.Register(palette.Command{Name: "lineending", Description: "Show line ending indicator for current file", Keywords: []string{"lf", "crlf", "le"}, OnRun: func() {
 		// Cycle LF -> CRLF -> CR -> LF
-		if m.buffer != nil { switch m.buffer.LineEnding { case "\n": m.buffer.LineEnding = "\r\n"; case "\r\n": m.buffer.LineEnding = "\r"; default: m.buffer.LineEnding = "\n" } }
+		if m.buffer != nil {
+			switch m.buffer.LineEnding {
+			case "\n":
+				m.buffer.LineEnding = "\r\n"
+			case "\r\n":
+				m.buffer.LineEnding = "\r"
+			default:
+				m.buffer.LineEnding = "\n"
+			}
+		}
 	}})
 	return m
 }
@@ -186,6 +202,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// U8: Prompt-Mode für Tree-File-Operations hat Vorrang
+	if m.promptMode != "" {
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.promptMode = ""
+			m.promptQuery = ""
+			return m, nil
+		case tea.KeyEnter:
+			return m.executePrompt()
+		case tea.KeyBackspace:
+			if len(m.promptQuery) > 0 {
+				m.promptQuery = m.promptQuery[:len(m.promptQuery)-1]
+			}
+			return m, nil
+		}
+		if msg.Type == tea.KeyRunes {
+			for _, r := range msg.Runes {
+				m.promptQuery += string(r)
+			}
+			return m, nil
+		}
+		return m, nil
+	}
+
 	switch msg.Type {
 	case tea.KeyCtrlQ:
 		m.quitting = true
@@ -273,6 +313,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		next := m.cycleFocus(1)
 		m = m.setFocus(next)
 		return m, nil
+	case tea.KeyF5:
+		// Refresh Tree from disk
+		m.refreshWorkspace()
+		return m, nil
 	case tea.KeyCtrlR:
 		if msg.String() == "ctrl+shift+r" {
 			// Read-Only Toggle (Ctrl+Shift+R)
@@ -348,7 +392,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.buffer.MoveCursor(0, -1)
 		}
 		return m, nil
-		case tea.KeyEsc:
+	case tea.KeyEsc:
 		// Esc priorisiert: Modals > Tree > Quit
 		if m.searchActive {
 			m.searchActive = false
@@ -514,6 +558,27 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	default:
+		// U8: Tree-based file operations (a/A/d/r) im Tree-Focus
+		if m.focus == "tree" && msg.Type == tea.KeyRunes {
+			switch string(msg.Runes) {
+			case "a":
+				m.promptMode = "new-file"
+				m.promptQuery = ""
+				return m, nil
+			case "A":
+				m.promptMode = "new-folder"
+				m.promptQuery = ""
+				return m, nil
+			case "d":
+				m.promptMode = "confirm-delete"
+				m.promptQuery = ""
+				return m, nil
+			case "r":
+				m.promptMode = "rename"
+				m.promptQuery = ""
+				return m, nil
+			}
+		}
 		// Shift+F6: cycle focus backward
 		if msg.String() == "shift+f6" {
 			prev := m.cycleFocus(-1)
@@ -703,7 +768,9 @@ func (m Model) View() string {
 		var matchLines []string
 		matchLines = append(matchLines, fmt.Sprintf("CMD: %s", m.paletteQuery))
 		for i, name := range matches {
-			if i >= 5 { break }
+			if i >= 5 {
+				break
+			}
 			desc, _ := m.palette.Run(name)
 			matchLines = append(matchLines, fmt.Sprintf("  > %s — %s", name, desc))
 		}
@@ -751,7 +818,13 @@ func (m Model) View() string {
 	// U6: Toolbar (1-zeilige Shortcut-Leiste unter dem Header)
 	toolbar := m.layout.Toolbar("mdskim", m.toolbarShortcuts(), m.theme)
 
-	return strings.Join([]string{header, toolbar, body, status, footer}, "\n")
+	parts := []string{header, toolbar, body, status}
+	// U8: Prompt-Bar zwischen Status und Footer
+	if promptBar := m.renderPrompt(m.width); promptBar != "" {
+		parts = append(parts, promptBar)
+	}
+	parts = append(parts, footer)
+	return strings.Join(parts, "\n")
 }
 
 func (m Model) renderSidebar() string {
@@ -1325,7 +1398,6 @@ func (m Model) setFocus(f string) Model {
 	return m
 }
 
-
 // RightTab returns the current right-pane tab index.
 func (m Model) RightTab() int {
 	return m.rightTab
@@ -1532,6 +1604,147 @@ func clampOffset(target, current, viewportH int) int {
 	return current
 }
 
+// refreshWorkspace lädt den Tree neu aus dem Disk (für F5/Ctrl+R).
+func (m *Model) refreshWorkspace() {
+	if m.workspace == nil {
+		return
+	}
+	ws, err := workspace.Load(m.workspace.RootPath)
+	if err != nil {
+		return
+	}
+	m.workspace = ws
+	m.treeRender = workspace.NewTreeRenderer()
+	m.flatList = m.workspace.FlatList(m.treeRender.CollapsedDirs)
+	if m.cursorIdx >= len(m.flatList) {
+		m.cursorIdx = len(m.flatList) - 1
+	}
+	if m.cursorIdx < 0 {
+		m.cursorIdx = 0
+	}
+	m.refreshBacklinks()
+}
+
+// executePrompt führt die aktuelle Prompt-Aktion aus (Enter im Prompt).
+func (m *Model) executePrompt() (tea.Model, tea.Cmd) {
+
+	if m.cursorIdx < 0 || m.cursorIdx >= len(m.flatList) {
+		m.promptMode = ""
+		m.promptQuery = ""
+		return *m, nil
+	}
+	node := m.flatList[m.cursorIdx]
+	parent := node.Path
+	if !node.IsDir {
+		parent = filepath.Dir(node.Path)
+	}
+	switch m.promptMode {
+	case "new-file":
+		name := strings.TrimSpace(m.promptQuery)
+		if name == "" {
+			m.promptMode = ""
+			m.promptQuery = ""
+			return *m, nil
+		}
+		newPath := filepath.Join(parent, name)
+		if err := os.WriteFile(newPath, []byte(""), 0644); err == nil {
+			m.refreshWorkspace()
+			m.cursorIdx = m.findTreeIdxByPath(newPath)
+			if m.cursorIdx >= 0 {
+				// Datei automatisch öffnen (frisch angelegte Datei direkt aktiv)
+				updated, _ := m.selectCurrent()
+				if um, ok := updated.(Model); ok {
+					m.currentFile = um.currentFile
+					m.buffer = um.buffer
+					m.mode = um.mode
+				}
+			}
+		}
+		m.promptMode = ""
+		m.promptQuery = ""
+		return *m, nil
+	case "new-folder":
+		name := strings.TrimSpace(m.promptQuery)
+		if name == "" {
+			m.promptMode = ""
+			m.promptQuery = ""
+			return *m, nil
+		}
+		newPath := filepath.Join(parent, name)
+		if err := os.MkdirAll(newPath, 0755); err == nil {
+			m.refreshWorkspace()
+			m.cursorIdx = m.findTreeIdxByPath(newPath)
+		}
+		m.promptMode = ""
+		m.promptQuery = ""
+		return *m, nil
+	case "rename":
+		name := strings.TrimSpace(m.promptQuery)
+		if name == "" {
+			m.promptMode = ""
+			m.promptQuery = ""
+			return *m, nil
+		}
+		newPath := filepath.Join(filepath.Dir(node.Path), name)
+		if err := os.Rename(node.Path, newPath); err == nil {
+			m.refreshWorkspace()
+			m.cursorIdx = m.findTreeIdxByPath(newPath)
+		}
+		m.promptMode = ""
+		m.promptQuery = ""
+		return *m, nil
+	case "confirm-delete":
+		if strings.ToLower(strings.TrimSpace(m.promptQuery)) != "y" {
+			m.promptMode = ""
+			m.promptQuery = ""
+			return *m, nil
+		}
+		if node.IsDir {
+			if err := os.RemoveAll(node.Path); err == nil {
+				m.refreshWorkspace()
+				if m.cursorIdx >= len(m.flatList) {
+					m.cursorIdx = len(m.flatList) - 1
+				}
+			}
+		} else {
+			if err := os.Remove(node.Path); err == nil {
+				m.refreshWorkspace()
+				if m.cursorIdx >= len(m.flatList) {
+					m.cursorIdx = len(m.flatList) - 1
+				}
+			}
+		}
+		m.promptMode = ""
+		m.promptQuery = ""
+		return *m, nil
+	}
+	m.promptMode = ""
+	m.promptQuery = ""
+	return *m, nil
+}
+
+// renderPrompt rendert die Prompt-Bar am unteren Bildschirmrand.
+func (m Model) renderPrompt(width int) string {
+	if m.promptMode == "" {
+		return ""
+	}
+	var label string
+	switch m.promptMode {
+	case "new-file":
+		label = "Neue Datei:"
+	case "new-folder":
+		label = "Neuer Ordner:"
+	case "rename":
+		label = "Neuer Name:"
+	case "confirm-delete":
+		label = "Wirklich löschen? (y/n):"
+	}
+	bar := "\x1b[48;5;63m\x1b[1;37m " + label + " \x1b[0m"
+	bar += " \x1b[7m" + m.promptQuery + " \x1b[0m"
+	bar += " \x1b[2m(Esc=Abbruch)\x1b[0m"
+	return bar
+}
+
 // FocusForTest returns the current focus (used by tests).
 func (m Model) FocusForTest() string {
 	return m.focus
@@ -1576,3 +1789,17 @@ func (m Model) WidthForTest() int { return m.width }
 
 // HeightForTest returns height (used by tests).
 func (m Model) HeightForTest() int { return m.height }
+
+// PromptModeForTest returns the current prompt mode (used by tests).
+func (m Model) PromptModeForTest() string { return m.promptMode }
+
+// PromptQueryForTest returns the current prompt query (used by tests).
+func (m Model) PromptQueryForTest() string { return m.promptQuery }
+
+// WorkspaceRootForTest returns the workspace root path (used by tests).
+func (m Model) WorkspaceRootForTest() string {
+	if m.workspace != nil {
+		return m.workspace.RootPath
+	}
+	return ""
+}

@@ -103,6 +103,12 @@ type Model struct {
 	promptQuery  string
 	treeFilter   string
 	treeFiltered bool
+
+	// U8.4: Wiki-Link-Autocomplete beim Tippen von [[
+	wikiLinkPopup   bool
+	wikiLinkQuery   string
+	wikiLinkMatches []string
+	wikiLinkIdx     int
 }
 
 func New(workspacePath string) Model {
@@ -246,6 +252,39 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case tea.KeyRunes:
 			m.treeFilter += string(msg.Runes)
 			m.applyTreeFilter()
+			return m, nil
+		}
+	}
+
+	// U8.4: Wiki-Link-Popup-Interceptor (Esc/Arrow/Enter/Runes)
+	if m.wikiLinkPopup {
+		switch msg.Type {
+		case tea.KeyEsc:
+			m.wikiLinkPopup = false
+			m.wikiLinkQuery = ""
+			return m, nil
+		case tea.KeyEnter, tea.KeyTab:
+			m.acceptWikiLink()
+			return m, nil
+		case tea.KeyUp:
+			if m.wikiLinkIdx > 0 {
+				m.wikiLinkIdx--
+			}
+			return m, nil
+		case tea.KeyDown:
+			if m.wikiLinkIdx < len(m.wikiLinkMatches)-1 {
+				m.wikiLinkIdx++
+			}
+			return m, nil
+		case tea.KeyBackspace:
+			if len(m.wikiLinkQuery) > 0 {
+				m.wikiLinkQuery = m.wikiLinkQuery[:len(m.wikiLinkQuery)-1]
+				m.refreshWikiLinkMatches()
+			}
+			return m, nil
+		case tea.KeyRunes:
+			m.wikiLinkQuery += string(msg.Runes)
+			m.refreshWikiLinkMatches()
 			return m, nil
 		}
 	}
@@ -692,6 +731,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.buffer != nil {
 			for _, r := range msg.Runes {
 				m.applyAutoPair(r)
+				m.maybeTriggerWikiLink(r)
+				_ = m // keep m in scope (pointer receiver changes persist via &m)
 			}
 		}
 		return m, nil
@@ -1926,3 +1967,102 @@ func (m Model) TreeFilteredForTest() bool { return m.treeFiltered }
 
 // TreeFilterForTest returns the current tree filter query (used by tests).
 func (m Model) TreeFilterForTest() string { return m.treeFilter }
+
+// maybeTriggerWikiLink öffnet das Wiki-Link-Popup, wenn der User [[ tippt,
+// und filtert es live weiter, sobald er den Namen weiter schreibt.
+func (m *Model) maybeTriggerWikiLink(r rune) {
+	if m.buffer == nil {
+		return
+	}
+	if r == '[' {
+		line := m.buffer.Lines[m.buffer.CursorRow]
+		runes := []rune(line)
+		// Der gerade eingefügte '[' steht an CursorCol-1.
+		// Wir prüfen das Zeichen davor — bei "[[" steht dort die vorherige '['.
+		newBrackCol := m.buffer.CursorCol - 1
+		prevCol := newBrackCol - 1
+		if prevCol < 0 || prevCol >= len(runes) {
+			return
+		}
+		if runes[prevCol] != '[' {
+			return
+		}
+		// Doppelte [ erkannt → Popup öffnen
+		m.wikiLinkPopup = true
+		m.wikiLinkQuery = ""
+		m.refreshWikiLinkMatches()
+		return
+	}
+	// Andere Zeichen: Popup ggf. weiter nach rechts filtern oder schließen
+	if !m.wikiLinkPopup {
+		return
+	}
+	if r == ']' {
+		// Akzeptiert: User hat den Link selbst geschrieben → Popup schließen
+		m.wikiLinkPopup = false
+		m.wikiLinkQuery = ""
+		return
+	}
+	// Beim Tippen Filter-Query verlängern
+	m.wikiLinkQuery += string(r)
+	m.refreshWikiLinkMatches()
+}
+
+// refreshWikiLinkMatches holt die zur Query passenden Markdown-Dateien aus
+// dem Workspace und legt sie als Popup-Items ab.
+func (m *Model) refreshWikiLinkMatches() {
+	m.wikiLinkMatches = nil
+	if m.workspace == nil {
+		return
+	}
+	all := m.workspace.FlatList(m.treeRender.CollapsedDirs)
+	for _, n := range all {
+		if n.IsDir {
+			continue
+		}
+		// Nur Markdown-Dateien
+		if !strings.HasSuffix(n.Name, ".md") && !strings.HasSuffix(n.Name, ".markdown") {
+			continue
+		}
+		if m.wikiLinkQuery == "" || strings.Contains(strings.ToLower(n.Name), strings.ToLower(m.wikiLinkQuery)) {
+			m.wikiLinkMatches = append(m.wikiLinkMatches, n.Name)
+		}
+	}
+	if m.wikiLinkIdx >= len(m.wikiLinkMatches) {
+		m.wikiLinkIdx = 0
+	}
+}
+
+// acceptWikiLink fügt den gewählten Match als Link-Text ein ([[Name]]) und schließt das Popup.
+func (m *Model) acceptWikiLink() {
+	if m.buffer == nil {
+		m.wikiLinkPopup = false
+		m.wikiLinkQuery = ""
+		return
+	}
+	if m.wikiLinkIdx < 0 || m.wikiLinkIdx >= len(m.wikiLinkMatches) {
+		m.wikiLinkPopup = false
+		m.wikiLinkQuery = ""
+		return
+	}
+	link := m.wikiLinkMatches[m.wikiLinkIdx]
+	// Entferne das durch applyAutoPair eingefügte "[[]]" (4 Zeichen vor Cursor).
+	// "[[" rückwärts (DeleteChar), "]]" vorwärts (DeleteCharForward).
+	for i := 0; i < 2; i++ {
+		m.buffer.DeleteChar()
+	}
+	for i := 0; i < 2; i++ {
+		m.buffer.DeleteCharForward()
+	}
+	// Insert "[[Name]]" als Wiki-Link
+	m.buffer.InsertString("[[" + link + "]]")
+	m.wikiLinkPopup = false
+	m.wikiLinkQuery = ""
+	m.wikiLinkIdx = 0
+}
+
+// WikiLinkPopupForTest returns whether the wiki-link popup is active (used by tests).
+func (m Model) WikiLinkPopupForTest() bool { return m.wikiLinkPopup }
+
+// WikiLinkMatchesForTest returns the current wiki-link match list (used by tests).
+func (m Model) WikiLinkMatchesForTest() []string { return m.wikiLinkMatches }

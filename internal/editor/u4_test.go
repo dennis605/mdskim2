@@ -96,3 +96,41 @@ func TestBufferSetLineUndo(t *testing.T) {
 		t.Fatalf("after undo expected foo, got %q", b.Lines[0])
 	}
 }
+
+func TestBufferSetLines(t *testing.T) {
+	b := NewEmpty()
+	b.Lines = []string{"alpha", "beta"}
+	b.History = [][]string{{"alpha", "beta"}}
+	b.HistoryIdx = 0
+	b.SetLines([]string{"alpha", "BETA", "gamma"})
+	if len(b.Lines) != 3 || b.Lines[1] != "BETA" {
+		t.Fatalf("expected 3 lines with BETA, got %v", b.Lines)
+	}
+	if !b.Modified {
+		t.Fatal("expected Modified=true")
+	}
+}
+
+func TestBufferSetLinesIdempotent(t *testing.T) {
+	b := NewEmpty()
+	b.Lines = []string{"a", "b"}
+	b.History = [][]string{{"a", "b"}}
+	b.HistoryIdx = 0
+	b.Modified = false
+	b.SetLines([]string{"a", "b"})
+	if b.Modified {
+		t.Fatal("setting same lines should not mark Modified")
+	}
+}
+
+func TestBufferSetLinesUndo(t *testing.T) {
+	b := NewEmpty()
+	b.Lines = []string{"foo", "bar"}
+	b.History = [][]string{{"foo", "bar"}}
+	b.HistoryIdx = 0
+	b.SetLines([]string{"baz", "qux"})
+	b.Undo()
+	if len(b.Lines) != 2 || b.Lines[0] != "foo" || b.Lines[1] != "bar" {
+		t.Fatalf("after undo expected original lines, got %v", b.Lines)
+	}
+}

@@ -548,9 +548,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		opt := search.Options{CaseSensitive: false}
 		newLines, count := search.ReplaceAll(m.buffer.Lines, m.searchQuery, "REPLACED", opt)
 		if count > 0 {
-			m.buffer.Lines = newLines
-			m.buffer.Modified = true
-			m.buffer.SnapshotHistory()
+			// Use Buffer method (sets Modified + snapshots for undo/redo)
+			// instead of direct Lines slice replacement.
+			m.buffer.SetLines(newLines)
 		}
 		m.mode = fmt.Sprintf("REPLACE: %d", count)
 		return m, nil

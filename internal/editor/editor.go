@@ -330,6 +330,36 @@ func (b *Buffer) SetLine(row int, content string) {
 	b.SnapshotHistory()
 }
 
+// SetLines ersetzt alle Zeilen komplett (Wholesale-Replace).
+// Setzt Modified und erstellt ein History-Snapshot.
+// Wenn die Lines identisch zum aktuellen Inhalt sind, no-op.
+// Cursor wird geklammert (kann sich durch kürzeren Buffer verschieben).
+// Diese Methode ist der einzige Weg, einen ganzen Buffer von außen zu ersetzen
+// (z.B. nach Replace-All). Direkte m.buffer.Lines = … Mutationen aus dem
+// app-Layer umgehen Undo/Redo und Modified-Tracking.
+func (b *Buffer) SetLines(lines []string) {
+	if slicesEqual(b.Lines, lines) {
+		return
+	}
+	b.Lines = make([]string, len(lines))
+	copy(b.Lines, lines)
+	b.Modified = true
+	b.clampCursor()
+	b.SnapshotHistory()
+}
+
+func slicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 // ToString serialisiert den Buffer zurück zu einem String.
 func (b *Buffer) ToString() string {
 	return strings.Join(b.Lines, "\n")

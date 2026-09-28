@@ -685,23 +685,6 @@ func (m Model) autoOpenAtCursor() {
 	}
 }
 
-func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	if msg.Type != tea.MouseLeft {
-		return m, nil
-	}
-	if msg.X >= 1 && msg.X < m.layout.SidebarWidth-1 {
-		idx := msg.Y - 2
-		if idx < 0 {
-			idx = 0
-		}
-		if idx >= 0 && idx < len(m.flatList) {
-			m.cursorIdx = idx
-			return m.selectCurrent()
-		}
-	}
-	return m, nil
-}
-
 func (m Model) View() string {
 	m.clampScrollOffset()
 
@@ -779,19 +762,34 @@ func (m Model) renderSidebar() string {
 	if m.focus == "tree" {
 		headerMark = "\x1b[48;5;63m\x1b[1;37m FILES \x1b[0m"
 	}
+	// Truncate filenames to avoid lipgloss line-wrapping within the sidebar pane.
+	maxName := m.layout.SidebarWidth - 10
+	if maxName < 8 {
+		maxName = 8
+	}
+	truncate := func(name string) string {
+		runes := []rune(name)
+		if len(runes) > maxName {
+			return string(runes[:maxName-1]) + "…"
+		}
+		return name
+	}
 	var lines []string
 	lines = append(lines, headerMark)
 	for i, node := range m.flatList {
+		cn := *node
+		cn.Name = truncate(node.Name)
+		rendered := m.treeRender.FormatNode(&cn)
 		var line string
 		if i == m.cursorIdx {
-			line = "\x1b[1;33m▶\x1b[0m " + strings.TrimPrefix(m.treeRender.FormatNode(node), " ")
+			line = "\x1b[1;33m\x1b[0m " + strings.TrimPrefix(rendered, " ")
 			if m.focus == "tree" {
 				// aktive Zeile zusätzlich hervorheben
-				line = "\x1b[7m" + strings.TrimPrefix(m.treeRender.FormatNode(node), " ") + "\x1b[0m"
-				line = "\x1b[1;33m▶\x1b[0m " + line
+				line = "\x1b[7m" + strings.TrimPrefix(rendered, " ") + "\x1b[0m"
+				line = "\x1b[1;33m\x1b[0m " + line
 			}
 		} else {
-			line = "  " + m.treeRender.FormatNode(node)
+			line = "  " + rendered
 		}
 		lines = append(lines, line)
 	}
@@ -1358,9 +1356,190 @@ func (m *Model) LoadFileForTest(path string) {
 	m.refreshBacklinks()
 }
 
+func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	if msg.Type != tea.MouseLeft {
+		return m, nil
+	}
+	if m.width <= 0 || m.height <= 0 {
+		return m, nil
+	}
+
+	// Body starts at Y = HeaderHeight + ToolbarHeight (= 2 default)
+	bodyY := m.layout.HeaderHeight + m.layout.ToolbarHeight
+	if msg.Y < bodyY {
+		return m, nil
+	}
+	bodyBottom := m.height - m.layout.StatusHeight - m.layout.FooterHeight
+	if msg.Y >= bodyBottom {
+		return m, nil
+	}
+
+	// Pane boundaries (X is in absolute screen coords)
+	sidebarEnd := m.layout.SidebarWidth
+	editorEnd := sidebarEnd + m.layout.EditorWidth
+	rightEnd := editorEnd + m.layout.RightWidth
+
+	// Inner row offset = relative to body
+	innerY := msg.Y - bodyY
+
+	switch {
+	case msg.X < sidebarEnd:
+		return m.handleSidebarClick(msg.X, innerY)
+	case msg.X < editorEnd:
+		return m.handleEditorClick(msg.X-sidebarEnd, innerY)
+	case msg.X < rightEnd:
+		return m.handleRightPaneClick(msg.X-editorEnd, innerY)
+	}
+	return m, nil
+}
+
+func (m Model) handleSidebarClick(innerX, innerY int) (tea.Model, tea.Cmd) {
+	// Sidebar has no top border; row 0 = "FILES" label, rows 1..N = tree entries.
+	treeIdx := innerY - 1
+	if treeIdx < 0 || treeIdx >= len(m.flatList) {
+		return m, nil
+	}
+	m.cursorIdx = treeIdx
+	m.focus = "tree"
+	return m.selectCurrent()
+}
+
+func (m Model) handleEditorClick(innerX, innerY int) (tea.Model, tea.Cmd) {
+	if m.buffer == nil {
+		m.focus = "editor"
+		return m, nil
+	}
+	// Editor: row 0 = pane title (e.g. "TREE filename.md"), rows 1+ = lines
+	lineRow := innerY - 1 + m.editorScrollOffset
+	if lineRow < 0 {
+		lineRow = 0
+	}
+	totalLines := m.buffer.TotalLines()
+	if totalLines == 0 {
+		return m, nil
+	}
+	if lineRow >= totalLines {
+		lineRow = totalLines - 1
+	}
+	const lineNumberGutter = 6
+	editorCol := innerX - lineNumberGutter
+	if editorCol < 0 {
+		editorCol = 0
+	}
+	line := ""
+	if lineRow < len(m.buffer.Lines) {
+		line = m.buffer.Lines[lineRow]
+	}
+	if editorCol > len(line) {
+		editorCol = len(line)
+	}
+	m.buffer.CursorRow = lineRow
+	m.buffer.CursorCol = editorCol
+	m.buffer.SelAnchorRow = -1
+	m.buffer.SelAnchorCol = 0
+	m.focus = "editor"
+	return m, nil
+}
+
+func (m Model) handleRightPaneClick(innerX, innerY int) (tea.Model, tea.Cmd) {
+	// Right pane: row 0 = tab-bar, rows 1..N = content (no top border)
+	if innerY == 0 {
+		// Tab bar click — calculate which tab by X position
+		totalInnerWidth := m.layout.RightWidth
+		if totalInnerWidth < 1 {
+			totalInnerWidth = 1
+		}
+		tabWidth := totalInnerWidth / 3
+		if tabWidth < 1 {
+			tabWidth = 1
+		}
+		idx := innerX / tabWidth
+		if idx > 2 {
+			idx = 2
+		}
+		m.rightTab = idx
+		m.focus = "toc"
+		return m, nil
+	}
+
+	contentRow := innerY - 1
+	if contentRow < 0 {
+		return m, nil
+	}
+	m.focus = "toc"
+	switch m.rightTab {
+	case 0:
+		// Preview tab — read-only content. Click sets focus but no action.
+		return m, nil
+	case 1:
+		// TOC tab — click on heading jumps editor
+		// renderTOC: row 0 = "INHALT", row 1 = "──────", row 2..N = headings
+		hs := m.tocHeadings()
+		treeIdx := contentRow - 2
+		if treeIdx < 0 || treeIdx >= len(hs) {
+			return m, nil
+		}
+		if m.buffer != nil {
+			target := hs[treeIdx].Line - 1
+			if target < 0 {
+				target = 0
+			}
+			if target >= len(m.buffer.Lines) {
+				target = len(m.buffer.Lines) - 1
+			}
+			m.buffer.CursorRow = target
+			m.buffer.CursorCol = 0
+			h := m.editorViewportHeight()
+			m.editorScrollOffset = clampOffset(target-3, m.editorScrollOffset, h)
+			m.focus = "editor"
+		}
+		return m, nil
+	case 2:
+		// Backlinks tab — click opens source file
+		// renderBacklinksTab: row 0 = title, rows 1..N = entries (or "no links" message)
+		// Simple approach: first entry is at contentRow, but renderBacklinksTab might have
+		// different layout. We look up by entry and set cursorIdx.
+		if contentRow >= len(m.backlinksCache) {
+			return m, nil
+		}
+		entry := m.backlinksCache[contentRow]
+		idx := m.findTreeIdxByPath(entry.SourceFile)
+		if idx >= 0 {
+			m.cursorIdx = idx
+			return m.selectCurrent()
+		}
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m Model) findTreeIdxByPath(path string) int {
+	for i, node := range m.flatList {
+		if node.Path == path {
+			return i
+		}
+	}
+	return -1
+}
+
+func clampOffset(target, current, viewportH int) int {
+	if target < current {
+		return target
+	}
+	if target > current+viewportH-3 {
+		return target - viewportH + 3
+	}
+	return current
+}
+
 // FocusForTest returns the current focus (used by tests).
 func (m Model) FocusForTest() string {
 	return m.focus
+}
+
+// CurrentFileForTest returns the path of the currently loaded file (used by tests).
+func (m Model) CurrentFileForTest() string {
+	return m.currentFile
 }
 
 // CycleFocusForTest returns the next/prev focus name without applying it.
@@ -1373,3 +1552,27 @@ func (m *Model) SetFocusForTest(name string) {
 	m2 := m.setFocus(name)
 	m.focus = m2.focus
 }
+
+// FlatListForTest returns the current flatList (used by tests).
+func (m Model) FlatListForTest() []string {
+	out := make([]string, len(m.flatList))
+	for i, n := range m.flatList {
+		if n.IsDir {
+			out[i] = "[DIR] " + n.Name
+		} else {
+			out[i] = "[FILE] " + n.Name
+		}
+	}
+	return out
+}
+
+// BufferForTest returns the current buffer (read-only, used by tests).
+func (m Model) BufferForTest() *editor.Buffer {
+	return m.buffer
+}
+
+// WidthForTest returns width (used by tests).
+func (m Model) WidthForTest() int { return m.width }
+
+// HeightForTest returns height (used by tests).
+func (m Model) HeightForTest() int { return m.height }

@@ -12,11 +12,11 @@
 
 **Start command**: `cd /Users/dennisschonig/projects/mdskim2 && go run ./cmd/mdskim2` (oder mit Workspace-Pfad)
 
-**Last action**: Sprint U6 — UI-Revamp (Python-mdskim-Look). Keybinding-Toolbar oben, TabbedContent rechts (Preview | TOC | Backlinks) statt immer-TOC. Neues `internal/backlinks` Package mit 5 Tests. 4 U6-Tests grün.
+**Last action**: Sprint U7 — Mouse-Handling: Sidebar-Klick lädt Datei, RightPane-Tab-Klick wechselt Tab, TOC-Klick springt in Editor. Klick in Editor/Toolbar setzt Focus. Tree-Filenames trunkiert (SidebarWidth-10) damit Y→Tree-Idx 1:1 mappt.
 
-**Next step**: Optionale UI-Polish-Sprints U7+: Sidebar-Resize via Ctrl+Left/Right, File-Watcher (fsnotify), Markdown-Lint-Markers, Splitter-Drag. Aktueller Look entspricht jetzt dem Python-mdskim.
+**Next step**: Weitere UI-Polish-Sprints: Sidebar-Resize via Ctrl+Left/Right, File-Watcher (fsnotify), Markdown-Lint-Markers, Splitter-Drag, oder neues Feature nach User-Wahl.
 
-**Updated**: 2026-09-27 23:36 UTC+02:00
+**Updated**: 2026-09-28 16:05 UTC+02:00
 
 **Confidence**: high
 
@@ -34,6 +34,14 @@
 | R8 | Tabs + Quick-Open | ✓ done |
 | R9 | Command Palette (Ctrl+K) + Workspace-Suche | ✓ done |
 | R10 | Polish + 8 Obsidian-Stubs (L1-L8) + Final-Verifikation | ✓ done |
+| U1 | UX-Polish (Auto-Open + Visible Cursor + EDIT-Badge) | ✓ done |
+| U2 | Focus-Modell + Editor-Look (Block-Cursor + Line-Numbers) | ✓ done |
+| U3 | Advanced Editor (Selection · Word-Nav · Auto-Indent · Go-to-Line · Wrap) | ✓ done |
+| U4 | Advanced Feedback & Persistence (Bracket-Match · Whitespace · Read-Only · EOL · Auto-Save · Recent-Files) | ✓ done |
+| U5 | Pane-Focus-Switching (F6/Shift+F6/Alt+1..4/Esc) | ✓ done |
+| U6 | UI-Revamp (Toolbar + RightPane-Tabs + Backlinks-Package) | ✓ done |
+| U6.1 | Ctrl+Shift+Arrow Pane-Navigation | ✓ done |
+| U7 | Mouse-Handling (Sidebar/RightPane/Editor/TOC) | ✓ done |
 
 ## 7-Gate-Verifikation (R10 Final)
 
@@ -73,6 +81,11 @@ Commit `d4c6c73` — 10 echte Editor-Features:
 | U1 | ✓ done | `3a04381` |
 | U2 | ✓ done | `6ce50fb` |
 | U3 | ✓ done | `d4c6c73` |
+| U4 | ✓ done | `b797b50` |
+| U5 | ✓ done | `00b4eaf` |
+| U6 | ✓ done | `ce40586` |
+| U6.1 | ✓ done | `621c115` |
+| U7 | ✓ done | (mouse-handling fix) |
 | U4+ | offen — bereit für nächste User-Anforderung |
 
 ## Letzte Verifikation
